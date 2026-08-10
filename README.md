@@ -13,8 +13,6 @@ Run the reference implementation using Python standard library:
 python src/forensic_algorithm.py
 
 ## Author
-Gikonyo Ndugu
-
-Independent Researcher / Consultant
-
+**Gikonyo Ndugu**  
+Independent Researcher / Consultant  
 Nairobi, Kenya

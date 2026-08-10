@@ -1,2 +1,1 @@
-# No external dependencies.
-# The reference implementation uses the Python standard library only.
+streamlit>=1.30.0

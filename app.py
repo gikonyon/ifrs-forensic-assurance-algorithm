@@ -1,7 +1,5 @@
-import os
 import json
 import csv
-import io
 import streamlit as st
 from src.forensic_algorithm import IFRSForensicEngine, DisclosureHTMLParser
 
@@ -30,6 +28,12 @@ with st.sidebar:
             if "@" in email_in and "." in email_in:
                 st.session_state.registered = True
                 st.session_state.user_email = email_in
+                
+                # Append email to local log
+                with open("registrations.csv", "a", newline="", encoding="utf-8") as f:
+                    writer = csv.writer(f)
+                    writer.writerow([email_in])
+                    
                 st.success("Registration confirmed!")
                 st.rerun()
             else:
@@ -73,8 +77,9 @@ if uploaded_file is not None:
         st.download_button(
             label="📥 Download JSON Report",
             data=json_str,
-            file_name="ifrs_verification_report.json",
+            file_name=f"{results.get('entity_name', 'entity')}_verification_report.json",
             mime="application/json"
         )
     else:
+        st.markdown("---")
         st.warning("🔒 Enter your email address in the sidebar to unlock the detailed SHA-256 lineage audit log and download full JSON/CSV reports.")

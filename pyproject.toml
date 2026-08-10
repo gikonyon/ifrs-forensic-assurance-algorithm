@@ -1,0 +1,13 @@
+[build-system]
+requires = []
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ifrs-forensic-assurance-algorithm"
+version = "0.1.0"
+description = "Research prototype for transaction-level forensic verification of selected IFRS S1 and IFRS S2 sustainability disclosures."
+requires-python = ">=3.9"
+dependencies = []
+authors = [
+    {name = "Gikonyo Ndugu"}
+]

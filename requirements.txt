@@ -1,0 +1,2 @@
+# No external dependencies.
+# The reference implementation uses the Python standard library only.

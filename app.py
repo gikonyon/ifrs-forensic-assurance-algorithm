@@ -1,7 +1,7 @@
 import json
 import csv
 import streamlit as st
-from src.forensic_algorithm import IFRSForensicEngine, DocumentExtractor, DisclosureParser
+from src.forensic_algorithm import IFRSForensicEngine, DocumentExtractor, DisclosureParser, generate_pdf_report
 
 st.set_page_config(
     page_title="IFRS Forensic Assurance Engine",
@@ -9,7 +9,6 @@ st.set_page_config(
     layout="wide"
 )
 
-# Email Lead Capture Session State
 if "registered" not in st.session_state:
     st.session_state.registered = False
 if "user_email" not in st.session_state:
@@ -18,7 +17,6 @@ if "user_email" not in st.session_state:
 st.title("IFRS S1 / S2 Forensic Verification Engine")
 st.caption("Transaction-level analytical assurance for PDF, Word, and HTML disclosures.")
 
-# Sidebar Lead Registration Form
 with st.sidebar:
     st.header("Access & Verification")
     if not st.session_state.registered:
@@ -49,22 +47,17 @@ st.subheader("1. Upload Sustainability Disclosure (PDF, Word, or HTML)")
 
 uploaded_file = st.file_uploader(
     "Drag and drop your file here", 
-    type=["pdf", "docx", "doc", "html", "htm"],
-    help="Upload an IFRS disclosure document in PDF, MS Word, or HTML format."
+    type=["pdf", "docx", "doc", "html", "htm"]
 )
 
 if uploaded_file is not None:
     raw_bytes = uploaded_file.getvalue()
     filename = uploaded_file.name
 
-    # Extract text content based on file type
     extracted_text = DocumentExtractor.process_file(raw_bytes, filename)
-    
-    # Parse ESG variables
     parser = DisclosureParser()
     parsed_data = parser.parse_text(extracted_text)
     
-    # Run forensic engine
     engine = IFRSForensicEngine()
     results = engine.verify_disclosure(parsed_data, raw_bytes)
 
@@ -82,13 +75,25 @@ if uploaded_file is not None:
         st.subheader("3. Audit Trail & SHA-256 Data Lineage")
         st.json(results)
         
+        # Generate PDF Bytes
+        pdf_bytes = generate_pdf_report(results)
         json_str = json.dumps([results], indent=2)
-        st.download_button(
-            label="📥 Download JSON Report",
-            data=json_str,
-            file_name=f"{results.get('entity_name', 'entity')}_verification_report.json",
-            mime="application/json"
-        )
+
+        col_pdf, col_json = st.columns(2)
+        with col_pdf:
+            st.download_button(
+                label="📄 Download PDF Audit Report",
+                data=pdf_bytes,
+                file_name=f"{results.get('entity_name', 'entity')}_verification_report.pdf",
+                mime="application/pdf"
+            )
+        with col_json:
+            st.download_button(
+                label="📥 Download Raw JSON Report",
+                data=json_str,
+                file_name=f"{results.get('entity_name', 'entity')}_verification_report.json",
+                mime="application/json"
+            )
     else:
         st.markdown("---")
-        st.warning("🔒 Enter your email address in the sidebar to unlock the detailed SHA-256 lineage audit log and download full JSON/CSV reports.")
+        st.warning("🔒 Enter your email address in the sidebar to unlock and download the full PDF and JSON verification reports.")

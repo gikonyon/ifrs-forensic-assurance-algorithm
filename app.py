@@ -1,7 +1,7 @@
 import json
 import csv
 import streamlit as st
-from src.forensic_algorithm import IFRSForensicEngine, DisclosureHTMLParser
+from src.forensic_algorithm import IFRSForensicEngine, DocumentExtractor, DisclosureParser
 
 st.set_page_config(
     page_title="IFRS Forensic Assurance Engine",
@@ -16,7 +16,7 @@ if "user_email" not in st.session_state:
     st.session_state.user_email = ""
 
 st.title("IFRS S1 / S2 Forensic Verification Engine")
-st.caption("Transaction-level analytical assurance for sustainability disclosures.")
+st.caption("Transaction-level analytical assurance for PDF, Word, and HTML disclosures.")
 
 # Sidebar Lead Registration Form
 with st.sidebar:
@@ -29,7 +29,6 @@ with st.sidebar:
                 st.session_state.registered = True
                 st.session_state.user_email = email_in
                 
-                # Append email to local log
                 with open("registrations.csv", "a", newline="", encoding="utf-8") as f:
                     writer = csv.writer(f)
                     writer.writerow([email_in])
@@ -46,18 +45,28 @@ with st.sidebar:
             st.rerun()
 
 st.markdown("---")
-st.subheader("1. Upload Sustainability Disclosure (HTML)")
+st.subheader("1. Upload Sustainability Disclosure (PDF, Word, or HTML)")
 
-uploaded_file = st.file_uploader("Upload HTML report", type=["html", "htm"])
+uploaded_file = st.file_uploader(
+    "Drag and drop your file here", 
+    type=["pdf", "docx", "doc", "html", "htm"],
+    help="Upload an IFRS disclosure document in PDF, MS Word, or HTML format."
+)
 
 if uploaded_file is not None:
-    raw_html = uploaded_file.getvalue().decode("utf-8", errors="ignore")
+    raw_bytes = uploaded_file.getvalue()
+    filename = uploaded_file.name
+
+    # Extract text content based on file type
+    extracted_text = DocumentExtractor.process_file(raw_bytes, filename)
     
-    parser = DisclosureHTMLParser()
-    parsed_data = parser.extract_variables(raw_html)
+    # Parse ESG variables
+    parser = DisclosureParser()
+    parsed_data = parser.parse_text(extracted_text)
     
+    # Run forensic engine
     engine = IFRSForensicEngine()
-    results = engine.verify_disclosure(parsed_data, raw_html)
+    results = engine.verify_disclosure(parsed_data, raw_bytes)
 
     st.markdown("---")
     st.subheader("2. Key Forensic Indicators")

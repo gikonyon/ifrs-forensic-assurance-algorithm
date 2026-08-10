@@ -11,3 +11,10 @@ A system-agnostic, transaction-level verification engine for **IFRS S1 (Governan
 Run the reference implementation using Python standard library:
 ```bash
 python src/forensic_algorithm.py
+
+## Author
+Gikonyo Ndugu
+
+Independent Researcher / Consultant
+
+Nairobi, Kenya

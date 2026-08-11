@@ -37,11 +37,13 @@ st.set_page_config(
     layout="wide"
 )
 
-# Initialize Session State for Dynamic Resetting
-if "entity_name" not in st.session_state:
-    st.session_state["entity_name"] = ""
+# Initialize Session State Variables Robustly
 if "entity_input" not in st.session_state:
     st.session_state["entity_input"] = ""
+if "main_files_state" not in st.session_state:
+    st.session_state["main_files_state"] = None
+if "verif_files_state" not in st.session_state:
+    st.session_state["verif_files_state"] = None
 
 
 # -----------------------------------------------------------------------------
@@ -114,8 +116,29 @@ class DocumentExtractor:
 
 
 # -----------------------------------------------------------------------------
-# 2. ENHANCED DISCLOSURE PARSER & VERIFIABLE METRICS EXTRACTOR
+# 2. ENHANCED DISCLOSURE PARSER & DYNAMIC FORENSIC EVALUATOR
 # -----------------------------------------------------------------------------
+class EnhancedDisclosureParser:
+    """Parses text to extract entity names automatically."""
+    @staticmethod
+    def extract_entity_name(text: str, filename: str) -> str:
+        cover_text = text[:1000]
+        # Check known patterns or prominent corporate keywords
+        entity_patterns = [
+            r"([A-Za-z0-9\s&,.-]+)\s+(?:PLC|Limited|Ltd|Group|Bank|Corporation|Corp)\b",
+            r"(?:Company Name|Entity|Issuer|Prepared for):\s*([A-Za-z0-9\s&,.-]+)"
+        ]
+        for pat in entity_patterns:
+            match = re.search(pat, cover_text, re.I)
+            if match:
+                val = match.group(1).strip()
+                if len(val) > 2 and len(val) < 50:
+                    return val
+        # Fallback to filename cleanup
+        clean_name = filename.rsplit('.', 1)[0].replace("_", " ").replace("-", " ").title()
+        return clean_name
+
+
 class DynamicForensicEvaluator:
     """Dynamically parses uploaded text to extract metrics, check audit evidence, and compute calibrated scores."""
     
@@ -125,7 +148,7 @@ class DynamicForensicEvaluator:
         combined_verif = " ".join(verif_texts).lower()
         full_corpus = combined_main + " " + combined_verif
 
-        # 1. Detect Auditor / Certification presence from uploaded evidence
+        # Detect Auditor / Certification presence from uploaded evidence
         auditor_found = "Statutory Baseline Compliance"
         if "deloitte" in full_corpus:
             auditor_found = "Deloitte & Touche LLP Limited Assurance"
@@ -138,8 +161,8 @@ class DynamicForensicEvaluator:
         elif len(verif_texts) > 0:
             auditor_found = "Independent Third-Party Verification Body"
 
-        # 2. Extract Green Financing Rate / Volume mentions via regex search
-        green_fin_val = 12.5 # default baseline in KES Billions
+        # Extract Green Financing Rate / Volume mentions via regex search
+        green_fin_val = 12.5 
         match_gf = re.search(r"(?:kes|\bksb|\bkes\.?)\s*([0-9]+\.?[0-9]*)\s*(?:billion|b)", full_corpus)
         if match_gf:
             try:
@@ -147,7 +170,7 @@ class DynamicForensicEvaluator:
             except ValueError:
                 pass
 
-        # 3. Calculate Calibrated Composite Index & Star Rating based on verification volume and auditor backing
+        # Calculate Calibrated Composite Index & Star Rating based on verification volume and auditor backing
         base_score = 7.5
         if len(verif_texts) > 0:
             base_score += 0.8
@@ -156,7 +179,6 @@ class DynamicForensicEvaluator:
         
         calibrated_index = min(round(base_score, 2), 9.0)
 
-        # Star Rating Mapping
         if calibrated_index >= 8.5:
             star_rating = "5.0 Stars (Market Leader / Elite)"
         elif calibrated_index >= 7.8:
@@ -164,7 +186,6 @@ class DynamicForensicEvaluator:
         else:
             star_rating = "4.0 Stars (Strong Contender)"
 
-        # Greenwashing Risk Status derived from verification backing
         if len(verif_texts) > 0 and auditor_found != "Statutory Baseline Compliance":
             gw_status = "VERY LOW Risk (-18% to -22% Audited Asset Variance)"
         else:
@@ -282,7 +303,6 @@ def generate_forensic_pdf(entity_name, forensic_results, main_disclosures, verif
 
 
 def categorize_attachment(filename: str) -> str:
-    """Categorizes document type based on filename conventions."""
     fn = filename.lower()
     if "ey" in fn or "assurance" in fn or "audit" in fn:
         return "ISAE 3000 Third-Party Assurance Statement"
@@ -300,13 +320,22 @@ def categorize_attachment(filename: str) -> str:
 st.title("🛡️ Uujuzi Comprehensive ESG Forensic & Assurance Engine")
 st.markdown("Upload verifiable data, audits from reputable auditors, and global certifications to generate calibrated ESG scores and greenwashing risk analyses.")
 
+# Sidebar Configuration (Placed BEFORE file uploads so entity name updates dynamically)
+st.sidebar.header("Entity & Audit Setup")
+
+if st.sidebar.button("🔄 Clear Assessment / Refresh"):
+    st.session_state["entity_input"] = ""
+    st.session_state["main_files_state"] = None
+    st.session_state["verif_files_state"] = None
+    st.rerun()
+
 # Ingest Workflow
 st.subheader("1. Ingest Main Disclosures")
 main_files = st.file_uploader(
     "Upload Annual Reports, TCFD Disclosures, or Sustainable Finance Reports",
     type=["pdf", "txt", "docx", "xlsx", "xls", "html"],
     accept_multiple_files=True,
-    key="main_disclosures"
+    key="main_files_state"
 )
 
 st.subheader("2. Ingest Verifiable Audits & Certifications")
@@ -314,7 +343,7 @@ verification_files = st.file_uploader(
     "Upload Independent Third-Party Audits (Deloitte, PwC, KPMG, EY) & Certifications",
     type=["pdf", "txt", "docx", "xlsx", "xls", "html"],
     accept_multiple_files=True,
-    key="verification_layer"
+    key="verif_files_state"
 )
 
 # Processing Files & Parsing
@@ -346,15 +375,10 @@ if verification_files:
 
 all_docs = parsed_main + parsed_verif
 
-# Extract texts for evaluation
-main_texts_list = [d["full_text"] for d in parsed_main]
-verif_texts_list = [d["full_text"] for d in parsed_verif]
-
-# Run Dynamic Evaluator based on Uploaded Evidence
-forensic_results = DynamicForensicEvaluator.evaluate_uploads(main_texts_list, verif_texts_list)
-
-# Sidebar Configuration
-st.sidebar.header("Entity & Audit Setup")
+# Auto-extract and update entity name in session state when main disclosures are uploaded
+if parsed_main and not st.session_state.get("entity_input"):
+    detected_entity = EnhancedDisclosureParser.extract_entity_name(parsed_main[0]["full_text"], parsed_main[0]["name"])
+    st.session_state["entity_input"] = detected_entity
 
 company_name = st.sidebar.text_input(
     "Target Entity Name", 
@@ -362,9 +386,12 @@ company_name = st.sidebar.text_input(
     key="entity_input"
 )
 
-if st.sidebar.button("🔄 Clear Assessment / Refresh"):
-    st.session_state["entity_input"] = ""
-    st.rerun()
+# Extract texts for evaluation
+main_texts_list = [d["full_text"] for d in parsed_main]
+verif_texts_list = [d["full_text"] for d in parsed_verif]
+
+# Run Dynamic Evaluator based on Uploaded Evidence
+forensic_results = DynamicForensicEvaluator.evaluate_uploads(main_texts_list, verif_texts_list)
 
 st.divider()
 

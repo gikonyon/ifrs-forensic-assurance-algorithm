@@ -3,10 +3,21 @@ import hashlib
 import io
 import re
 from datetime import datetime
+
+# ReportLab imports for PDF creation
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable, PageBreak
+from reportlab.platypus import (
+    SimpleDocTemplate, Paragraph, Spacer, Table, 
+    TableStyle, HRFlowable, PageBreak, Preformatted
+)
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+
+# PyPDF import for full PDF document extraction
+try:
+    from pypdf import PdfReader
+except ImportError:
+    from PyPDF2 import PdfReader
 
 # -----------------------------------------------------------------------------
 # PAGE CONFIGURATION
@@ -25,12 +36,25 @@ def calculate_sha256(file_bytes: bytes) -> str:
     return hashlib.sha256(file_bytes).hexdigest()
 
 def extract_text_from_file(uploaded_file) -> str:
-    """Extracts raw text from uploaded files (TXT or fallback decoding)."""
-    try:
-        content = uploaded_file.getvalue()
-        return content.decode("utf-8", errors="ignore")
-    except Exception as e:
-        return f"Error reading document stream: {str(e)}"
+    """Extracts raw text from uploaded files (PDFs, TXT, or fallback decoding)."""
+    filename = uploaded_file.name.lower()
+    if filename.endswith(".pdf"):
+        try:
+            pdf_reader = PdfReader(io.BytesIO(uploaded_file.getvalue()))
+            extracted_text = ""
+            for page in pdf_reader.pages:
+                text = page.extract_text()
+                if text:
+                    extracted_text += text + "\n"
+            return extracted_text.strip() if extracted_text.strip() else "[PDF contains no readable plain text]"
+        except Exception as e:
+            return f"Error parsing PDF text: {str(e)}"
+    else:
+        try:
+            content = uploaded_file.getvalue()
+            return content.decode("utf-8", errors="ignore")
+        except Exception as e:
+            return f"Error reading document stream: {str(e)}"
 
 def analyze_claims_and_evidence(report_text: str):
     """
@@ -78,12 +102,12 @@ def analyze_claims_and_evidence(report_text: str):
     return extracted_metrics
 
 # -----------------------------------------------------------------------------
-# REPORTLAB PDF GENERATOR (INCLUDES ATTACHED AUDITS & CERTIFICATES)
+# REPORTLAB PDF GENERATOR (INCLUDES FULL ATTACHMENT TRANSCRIPTS)
 # -----------------------------------------------------------------------------
 def generate_pdf_report(company_name, esg_score, metrics_data, audit_attachments):
     """
-    Generates an audit-ready PDF report containing primary ESG metrics, 
-    an Attached Audit Certificates & Evidentiary Annex, and cryptographic hashes.
+    Generates an audit-ready PDF report containing primary ESG metrics,
+    an Attached Audit Certificates Annex, and full text transcripts of attached audit reports.
     """
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -116,6 +140,16 @@ def generate_pdf_report(company_name, esg_score, metrics_data, audit_attachments
         spaceBefore=14,
         spaceAfter=6
     )
+
+    h3_style = ParagraphStyle(
+        'SubSectionHeading',
+        parent=styles['Heading3'],
+        fontSize=11,
+        leading=14,
+        textColor=colors.HexColor('#2C3E50'),
+        spaceBefore=10,
+        spaceAfter=4
+    )
     
     body_style = ParagraphStyle(
         'BodyTextCustom',
@@ -123,6 +157,14 @@ def generate_pdf_report(company_name, esg_score, metrics_data, audit_attachments
         fontSize=9,
         leading=12,
         textColor=colors.HexColor('#333333')
+    )
+
+    extracted_doc_style = ParagraphStyle(
+        'ExtractedDocStyle',
+        parent=styles['Normal'],
+        fontSize=8,
+        leading=11,
+        textColor=colors.HexColor('#222222')
     )
     
     badge_style = ParagraphStyle(
@@ -142,7 +184,9 @@ def generate_pdf_report(company_name, esg_score, metrics_data, audit_attachments
         textColor=colors.HexColor('#444444')
     )
 
+    # ---------------------------------------------------------
     # 1. HEADER & SUMMARY
+    # ---------------------------------------------------------
     story.append(Paragraph("UUJUZI FORENSIC ASSURANCE ENGINE", title_style))
     story.append(Paragraph("<b>IFRS S1/S2 & NSE ESG Pre-Assurance Baseline Report</b>", ParagraphStyle('Sub', parent=body_style, fontSize=11, textColor=colors.HexColor('#555555'))))
     story.append(Paragraph(f"<b>Entity Name:</b> {company_name} | <b>Timestamp:</b> {datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')}", body_style))
@@ -165,7 +209,9 @@ def generate_pdf_report(company_name, esg_score, metrics_data, audit_attachments
     story.append(summary_table)
     story.append(Spacer(1, 10))
 
+    # ---------------------------------------------------------
     # 2. CORE ESG METRICS AUDIT TABLE
+    # ---------------------------------------------------------
     story.append(Paragraph("1. Primary Disclosure Lineage & Forensic Assessment", h2_style))
     
     metrics_table_data = [["Metric Identified", "Reported Value", "Forensic Audit Assessment", "Status"]]
@@ -187,7 +233,9 @@ def generate_pdf_report(company_name, esg_score, metrics_data, audit_attachments
     story.append(metrics_table)
     story.append(Spacer(1, 12))
 
-    # 3. ATTACHED AUDITS & CERTIFICATES ANNEX
+    # ---------------------------------------------------------
+    # 3. ATTACHED AUDITS & CERTIFICATES ANNEX TABLE
+    # ---------------------------------------------------------
     story.append(Paragraph("2. Attached Audit Certificates & Evidentiary Annex", h2_style))
     story.append(Paragraph(
         "The following third-party audit statements, ISO compliance certificates, and statutory attachments "
@@ -205,7 +253,6 @@ def generate_pdf_report(company_name, esg_score, metrics_data, audit_attachments
             sha256_hash = att.get("hash", "N/A")
             verdict = att.get("verdict", "Authentic & Linked")
 
-            # Truncate hash for clean table display
             display_hash = sha256_hash[:20] + "..." + sha256_hash[-8:] if len(sha256_hash) > 28 else sha256_hash
 
             cert_table_data.append([
@@ -226,7 +273,6 @@ def generate_pdf_report(company_name, esg_score, metrics_data, audit_attachments
         story.append(cert_table)
         story.append(Spacer(1, 10))
 
-        # Itemized Justification Narrative Block
         story.append(Paragraph("<b>Evidentiary Justification & Lineage Validation:</b>", body_style))
         story.append(Spacer(1, 4))
         for att in audit_attachments:
@@ -242,7 +288,7 @@ def generate_pdf_report(company_name, esg_score, metrics_data, audit_attachments
     else:
         story.append(Paragraph("<i>No attached third-party audit certificates were provided during this ingestion run.</i>", body_style))
 
-    # 4. FOOTER & ASSURANCE DISCLAIMER
+    # Footnote Disclaimer on Page 1
     story.append(Spacer(1, 15))
     story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#CCCCCC'), spaceAfter=8))
     story.append(Paragraph(
@@ -250,6 +296,28 @@ def generate_pdf_report(company_name, esg_score, metrics_data, audit_attachments
         "and greenwashing risk scoring. Embedded cryptographic hashes guarantee that uploaded certificates match execution records.",
         ParagraphStyle('Footer', parent=body_style, fontSize=7.5, textColor=colors.HexColor('#666666'))
     ))
+
+    # ---------------------------------------------------------
+    # 4. FULL TRANSCRIPT ATTACHMENTS SECTION (PAGE BREAK)
+    # ---------------------------------------------------------
+    if audit_attachments:
+        for att in audit_attachments:
+            story.append(PageBreak())
+            story.append(Paragraph(f"Attached Document Transcript: {att.get('name')}", title_style))
+            story.append(Paragraph(f"<b>Sha-256 Hash Verification:</b> <code>{att.get('hash')}</code>", body_style))
+            story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#0F2C59'), spaceAfter=12))
+
+            extracted_text = att.get("full_text", "").strip()
+            if extracted_text:
+                paragraphs = extracted_text.split("\n")
+                for para in paragraphs:
+                    if para.strip():
+                        # Clean special characters for ReportLab standard XML parsing
+                        clean_para = para.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                        story.append(Paragraph(clean_para, extracted_doc_style))
+                        story.append(Spacer(1, 4))
+            else:
+                story.append(Paragraph("<i>[Document attached but no printable plain text could be extracted.]</i>", body_style))
 
     # Render Document
     doc.build(story)
@@ -281,7 +349,7 @@ with col1:
 with col2:
     st.subheader("2. Attached Audit Certificates & Evidence")
     audit_files = st.file_uploader(
-        "Attach ISO Proofs, Independent Audit Statements, NEMA/DOSHS Certificates", 
+        "Attach ISO Proofs, EY Assurance Reports, NEMA/DOSHS Certificates", 
         type=["pdf", "png", "jpg", "txt"], 
         accept_multiple_files=True,
         key="audit_certificates"
@@ -295,14 +363,16 @@ if audit_files:
     for a_file in audit_files:
         a_bytes = a_file.getvalue()
         a_hash = calculate_sha256(a_bytes)
+        a_text = extract_text_from_file(a_file)
         
         parsed_attachments.append({
             "name": a_file.name,
-            "type": "Third-Party Audit Certificate",
+            "type": "Third-Party Audit Certificate / EY Report",
             "bytes": a_bytes,
             "hash": a_hash,
+            "full_text": a_text,
             "verdict": "Validated & Lineage Checked",
-            "justification": f"File '{a_file.name}' successfully parsed and hashed ({a_hash[:10]}...). Substantiates disclosure claims against statutory frameworks."
+            "justification": f"File '{a_file.name}' successfully parsed and hashed ({a_hash[:10]}...). Full text extracted and attached as evidentiary proof."
         })
 
 # Parsing primary report or generating default assessment

@@ -8,12 +8,25 @@ import io
 from html.parser import HTMLParser
 from typing import Dict, List, Any, Optional
 
-import pypdf
-import docx
-from reportlab.lib.pagesizes import letter
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib import colors
+# Optional Third-Party Imports with Safe Fallbacks
+try:
+    import pypdf
+except ImportError:
+    pypdf = None
+
+try:
+    import docx
+except ImportError:
+    docx = None
+
+try:
+    from reportlab.lib.pagesizes import letter
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib import colors
+    REPORTLAB_AVAILABLE = True
+except ImportError:
+    REPORTLAB_AVAILABLE = False
 
 
 # =====================================================================
@@ -46,6 +59,8 @@ class DocumentExtractor:
 
     @staticmethod
     def extract_text_from_pdf(raw_bytes: bytes) -> str:
+        if pypdf is None:
+            return "Error: pypdf library is not installed."
         pdf_file = io.BytesIO(raw_bytes)
         reader = pypdf.PdfReader(pdf_file)
         text = []
@@ -57,6 +72,8 @@ class DocumentExtractor:
 
     @staticmethod
     def extract_text_from_docx(raw_bytes: bytes) -> str:
+        if docx is None:
+            return "Error: python-docx library is not installed."
         docx_file = io.BytesIO(raw_bytes)
         doc = docx.Document(docx_file)
         text = [para.text for para in doc.paragraphs if para.text.strip()]
@@ -102,11 +119,12 @@ class EnhancedDisclosureParser:
             "community_impact": {}
         }
 
-        # 1. Standard Metrics Extraction
+        # Entity Extraction
         entity_match = re.search(r"(?:Company Name|Entity):\s*([A-Za-z0-9\s&]+)", text, re.I)
         if entity_match:
             data["entity_name"] = entity_match.group(1).strip()
 
+        # Climate Variables
         s1_match = re.search(r"Scope\s*1\s*(?:Emissions)?:\s*([\d,]+(?:\.\d+)?)", text, re.I)
         s2_match = re.search(r"Scope\s*2\s*(?:Emissions)?:\s*([\d,]+(?:\.\d+)?)", text, re.I)
         output_match = re.search(r"Total\s*Output:\s*([\d,]+(?:\.\d+)?)", text, re.I)
@@ -115,14 +133,14 @@ class EnhancedDisclosureParser:
         if s2_match: data["metrics"]["scope_2"] = float(s2_match.group(1).replace(",", ""))
         if output_match: data["metrics"]["total_output"] = float(output_match.group(1).replace(",", ""))
 
-        # Governance Variables (NSE / IFRS S1 Alignment)
+        # Governance Variables
         male_match = re.search(r"Male\s*Board\s*Members:\s*(\d+)", text, re.I)
         female_match = re.search(r"Female\s*Board\s*Members:\s*(\d+)", text, re.I)
 
         if male_match: data["governance"]["male_count"] = int(male_match.group(1))
         if female_match: data["governance"]["female_count"] = int(female_match.group(1))
 
-        # 2. Greenwash Narrative Detection
+        # Greenwashing Risk Analysis
         text_lower = text.lower()
         buzzword_count = sum(text_lower.count(kw) for kw in self.GREENWASH_KEYWORDS)
         data["greenwash_analysis"]["narrative_buzzword_count"] = buzzword_count
@@ -133,7 +151,7 @@ class EnhancedDisclosureParser:
         else:
             data["greenwash_analysis"]["risk_level"] = "LOW_OR_VERIFIED"
 
-        # 3. Localized Regional Community Impact Tracking
+        # Localized Community Impact
         community_hits = [kw for kw in self.COMMUNITY_BENEFIT_KEYWORDS if kw in text_lower]
         data["community_impact"]["verified_initiatives"] = community_hits
         data["community_impact"]["score"] = len(community_hits) * 0.25
@@ -226,6 +244,10 @@ class IFRSForensicEngine:
 # =====================================================================
 
 def generate_pdf_report(results: Dict[str, Any]) -> bytes:
+    """Generates an IFRS Forensic Assurance Report as a PDF byte stream."""
+    if not REPORTLAB_AVAILABLE:
+        return b"%PDF-1.4 empty placeholder - reportlab not installed"
+
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
     story = []

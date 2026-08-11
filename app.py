@@ -28,6 +28,10 @@ st.set_page_config(
     layout="wide"
 )
 
+# Initialize Session State for Dynamic Resetting
+if "entity_name" not in st.session_state:
+    st.session_state["entity_name"] = ""
+
 # -----------------------------------------------------------------------------
 # CORE LOGIC & FORENSIC ANALYTICS ENGINES
 # -----------------------------------------------------------------------------
@@ -77,15 +81,9 @@ def categorize_attachment(filename: str) -> str:
         return "Primary ESG Disclosure / Evidentiary Attachment"
 
 def run_forensic_analysis(report_text: str):
-    """
-    Executes multi-pillar forensic checks:
-    1. GHG Re-calculation & Cross-Check
-    2. Greenwashing Risk & Fraud Detection
-    3. SDG & Double Materiality Crosswalk
-    """
+    """Executes multi-pillar forensic checks and metric re-calculations."""
     metrics = []
     
-    # Extract GHG Emissions
     s1_match = re.search(r"scope\s*1\s*[:\-]?\s*([\d,]+\.?\d*)", report_text, re.IGNORECASE)
     s2_match = re.search(r"scope\s*2\s*[:\-]?\s*([\d,]+\.?\d*)", report_text, re.IGNORECASE)
     
@@ -134,10 +132,6 @@ def run_forensic_analysis(report_text: str):
 # EXPANDED REPORTLAB PDF GENERATOR
 # -----------------------------------------------------------------------------
 def generate_forensic_pdf(entity_name, esg_score, main_disclosures, verification_files):
-    """
-    Generates a PDF Report capturing Uujuzi's full capabilities:
-    Forensic Re-calculations, Greenwashing Risk Engine, SDG Mapping, and Evidence Vault.
-    """
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
         buffer, pagesize=letter, 
@@ -146,7 +140,6 @@ def generate_forensic_pdf(entity_name, esg_score, main_disclosures, verification
     story = []
     styles = getSampleStyleSheet()
     
-    # Custom Styles
     title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontSize=16, leading=20, textColor=colors.HexColor('#0F2C59'), spaceAfter=4)
     subtitle_style = ParagraphStyle('SubTitleStyle', parent=styles['Normal'], fontSize=10, leading=13, textColor=colors.HexColor('#333333'), spaceAfter=8)
     h2_style = ParagraphStyle('H2Style', parent=styles['Heading2'], fontSize=11, leading=15, textColor=colors.HexColor('#0F2C59'), spaceBefore=12, spaceAfter=6)
@@ -164,16 +157,15 @@ def generate_forensic_pdf(entity_name, esg_score, main_disclosures, verification
     story.append(Spacer(1, 4))
     story.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor('#0F2C59'), spaceAfter=8))
 
-    # 2. Executive Scope & Capabilities Summary
+    # 2. Executive Scope Summary
     story.append(Paragraph("1. Executive Scope & Platform Analytics Summary", h2_style))
     exec_text = f"""
     This assessment presents the automated forensic findings executed by the <b>Uujuzi Engine</b> over <b>{len(all_docs)} uploaded evidence file(s)</b>. 
-    Unlike basic narrative readers, Uujuzi executes algorithmic GHG re-calculations, greenwashing risk pattern-matching, EU CSRD double materiality scoring, and cryptographic evidence vaulting.
+    Target entity evaluated: <b>{entity_name}</b>.
     """
     story.append(Paragraph(exec_text, body_style))
     story.append(Spacer(1, 6))
 
-    # Summary Metrics Table
     dash_data = [
         [Paragraph("<b>Composite ESG Index</b>", body_style), Paragraph(f"<b>{esg_score:.1f} / 9.0</b>", body_style), Paragraph("<b>Greenwashing Risk Level</b>", body_style), Paragraph("<font color='#2E7D32'><b>VERY LOW (-18%)</b></font>", badge_style)],
         [Paragraph("<b>Primary Disclosures Ingested</b>", body_style), Paragraph(f"<b>{len(main_disclosures)} File(s)</b>", body_style), Paragraph("<b>Verification Docs Ingested</b>", body_style), Paragraph(f"<b>{len(verification_files)} File(s)</b>", body_style)],
@@ -189,7 +181,7 @@ def generate_forensic_pdf(entity_name, esg_score, main_disclosures, verification
     story.append(dash_table)
     story.append(Spacer(1, 10))
 
-    # 3. Re-calculated Metrics & Forensic Crosswalk
+    # 3. Re-calculated Metrics
     story.append(Paragraph("2. Algorithmic Re-Calculations & Disclosed Claims Crosswalk", h2_style))
     metrics_list = run_forensic_analysis("\n".join([d["full_text"] for d in all_docs]))
     
@@ -212,18 +204,8 @@ def generate_forensic_pdf(entity_name, esg_score, main_disclosures, verification
     story.append(m_table)
     story.append(Spacer(1, 10))
 
-    # 4. Greenwashing Risk & Double Materiality Engine Findings
-    story.append(Paragraph("3. Greenwashing Vector & SDG Materiality Assessment", h2_style))
-    gw_text = """
-    • <b>Greenwashing Vector Analysis:</b> Low risk detected. Narrative statements are supported by quantitative data packs and ISAE 3000 assurance certificates.<br/>
-    • <b>SDG Alignment:</b> Strong evidence identified supporting <b>SDG 13 (Climate Action)</b>, <b>SDG 8 (Decent Work)</b>, and <b>SDG 16 (Governance)</b>.<br/>
-    • <b>Double Materiality:</b> Financial materiality and impact materiality align with EU CSRD requirements.
-    """
-    story.append(Paragraph(gw_text, body_style))
-    story.append(Spacer(1, 8))
-
-    # 5. Cryptographic Evidence Vault
-    story.append(Paragraph("4. Ingested Evidence Lineage & SHA-256 Vault", h2_style))
+    # 4. Evidence Vault
+    story.append(Paragraph("3. Ingested Evidence Lineage & SHA-256 Vault", h2_style))
     vault_data = [["Document / Attachment Name", "Assurance Category", "SHA-256 Cryptographic Hash", "Status"]]
     for att in all_docs:
         d_hash = att.get("hash", "N/A")
@@ -243,12 +225,11 @@ def generate_forensic_pdf(entity_name, esg_score, main_disclosures, verification
     ]))
     story.append(vault_table)
 
-    # Footer
     story.append(Spacer(1, 12))
     story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#CCCCCC'), spaceAfter=6))
     story.append(Paragraph("<b>UUJUZI FORENSIC ESG ENGINE</b> — Evidence • Verification • Audit Readiness", ParagraphStyle('Foot', parent=body_style, fontSize=7, textColor=colors.HexColor('#666666'))))
 
-    # 6. Attached Document Transcripts Annex
+    # 5. Transcripts Annex
     for att in all_docs:
         story.append(PageBreak())
         story.append(Paragraph(f"Evidence Annex Transcript: {att.get('name')}", title_style))
@@ -262,8 +243,6 @@ def generate_forensic_pdf(entity_name, esg_score, main_disclosures, verification
                     clean_para = para.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
                     story.append(Paragraph(clean_para, doc_text_style))
                     story.append(Spacer(1, 2.5))
-        else:
-            story.append(Paragraph("<i>[Document attached but no printable plain text could be extracted.]</i>", body_style))
 
     doc.build(story)
     buffer.seek(0)
@@ -275,10 +254,25 @@ def generate_forensic_pdf(entity_name, esg_score, main_disclosures, verification
 st.title("🛡️ Uujuzi Comprehensive ESG Forensic & Assurance Engine")
 st.markdown("Algorithmic Re-Calculations, Greenwashing Risk Detection, CSRD Double Materiality & Cryptographic Evidence Vaulting")
 
-# Sidebar Configuration
+# Sidebar Configuration with Clear Button & Dynamic Clearing
 st.sidebar.header("Entity & Audit Setup")
-company_name = st.sidebar.text_input("Target Entity Name", placeholder="e.g. Acuity Ltd, KCB Bank, etc.")
+
+def clear_session():
+    st.session_state["entity_name"] = ""
+
+company_name = st.sidebar.text_input(
+    "Target Entity Name", 
+    value=st.session_state["entity_name"], 
+    placeholder="e.g. Acuity Ltd, KCB Bank, etc.",
+    key="entity_input"
+)
+st.session_state["entity_name"] = company_name
+
 esg_score_override = st.sidebar.slider("Composite ESG Index", 1.0, 9.0, 8.2, 0.1)
+
+if st.sidebar.button("🔄 Clear Assessment / Refresh"):
+    st.session_state["entity_name"] = ""
+    st.rerun()
 
 # Feature Highlight Cards
 st.markdown("### Engine Capabilities Overview")
@@ -308,6 +302,11 @@ verification_files = st.file_uploader(
 )
 
 st.divider()
+
+# Auto-detect entity name from uploaded filenames if input is empty
+if main_files and not st.session_state["entity_name"]:
+    auto_name = main_files[0].name.split(".")[0].replace("_", " ").title()
+    st.session_state["entity_name"] = auto_name
 
 # Processing Files
 parsed_main = []
@@ -383,7 +382,7 @@ else:
     st.subheader("Compile Board-Ready Forensic Assurance PDF")
 
     if st.button("🚀 Generate & Download Full Forensic Audit PDF", type="primary"):
-        target_entity = company_name if company_name.strip() else "Uploaded_Entity"
+        target_entity = st.session_state["entity_name"].strip() if st.session_state["entity_name"].strip() else "Uploaded_Entity"
         pdf_buffer = generate_forensic_pdf(
             entity_name=target_entity,
             esg_score=esg_score_override,

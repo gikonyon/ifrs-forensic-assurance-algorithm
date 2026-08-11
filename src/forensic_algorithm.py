@@ -31,6 +31,7 @@ except ImportError:
 # =====================================================================
 
 class DisclosureHTMLParser(HTMLParser):
+    """Parses HTML markup and extracts plain text content."""
     def __init__(self):
         super().__init__()
         self.text_content = []
@@ -45,7 +46,7 @@ class DisclosureHTMLParser(HTMLParser):
 
 
 class DocumentExtractor:
-    """Extracts raw text content from HTML, PDF, and DOCX files."""
+    """Extracts raw text content from PDF, DOCX, HTML, and plain text files."""
     
     @staticmethod
     def extract_text_from_pdf(raw_bytes: bytes) -> str:
@@ -83,7 +84,7 @@ class DocumentExtractor:
 # =====================================================================
 
 class EnhancedDisclosureParser:
-    """Parses text for IFRS metrics, Scope 1/2 emissions, greenwashing risk, and community impact."""
+    """Parses disclosure text for entities, Scope 1/2 emissions, greenwashing risk, and community impact."""
     
     GREENWASH_KEYWORDS = [
         "net zero", "carbon neutral", "eco friendly", "sustainable future",
@@ -106,7 +107,7 @@ class EnhancedDisclosureParser:
             "community_impact": {}
         }
 
-        # 1. Smart Entity Extraction (First Page / Title Fallback)
+        # 1. Smart Entity Extraction (First 600 characters / Cover page area)
         cover_text = text[:600]
         if "NCBA" in cover_text:
             data["entity_name"] = "NCBA Bank Kenya PLC"
@@ -138,14 +139,14 @@ class EnhancedDisclosureParser:
         else:
             data["metrics"]["total_output"] = 1.0
 
-        # 3. Governance Parsing
+        # 3. Board Diversity & Governance Parsing
         female_board_match = re.search(r"Board\s*gender\s*diversity\s*\(?Women\s*in\s*leadership\)?[\s:]*(\d+)%", text, re.I)
         if female_board_match:
             female_pct = float(female_board_match.group(1))
             data["governance"]["female_pct"] = female_pct
             data["governance"]["male_pct"] = 100.0 - female_pct
 
-        # 4. Greenwash Risk Analysis
+        # 4. Greenwashing Risk Analysis
         text_lower = text.lower()
         buzzword_count = sum(text_lower.count(kw) for kw in self.GREENWASH_KEYWORDS)
         data["greenwash_analysis"]["narrative_buzzword_count"] = buzzword_count
@@ -156,7 +157,7 @@ class EnhancedDisclosureParser:
         else:
             data["greenwash_analysis"]["risk_level"] = "LOW_OR_VERIFIED"
 
-        # 5. Local Community Impact Tracking
+        # 5. Local Community Impact Indicators
         community_hits = [kw for kw in self.COMMUNITY_BENEFIT_KEYWORDS if kw in text_lower]
         data["community_impact"]["verified_initiatives"] = list(set(community_hits))
         data["community_impact"]["score"] = min(10.0, len(set(community_hits)) * 1.5)
@@ -169,6 +170,8 @@ class EnhancedDisclosureParser:
 # =====================================================================
 
 class IFRSForensicEngine:
+    """Calculates standardized 1–9 ESG Index scores and generates forensic audit results."""
+
     def verify_disclosure(self, parsed_data: Dict[str, Any], raw_bytes: bytes) -> Dict[str, Any]:
         metrics = parsed_data.get("metrics", {})
         gov = parsed_data.get("governance", {})
@@ -181,7 +184,7 @@ class IFRSForensicEngine:
         calc_intensity = (s1 + s2) / output if output > 0 else 0.0
 
         # Calculate Standardized 1–9 ESG Index Score
-        index_score = 1.0  # Base score
+        index_score = 1.0  # Baseline
         
         if s1 > 0: index_score += 1.5
         if s2 > 0: index_score += 1.5
@@ -195,6 +198,7 @@ class IFRSForensicEngine:
 
         final_index = round(min(9.0, max(1.0, index_score)), 1)
 
+        # Performance Tier Categorization
         if final_index >= 8.0:
             rating_label = "EXCELLENT (GOOD)"
         elif final_index >= 6.0:
@@ -227,10 +231,11 @@ class IFRSForensicEngine:
 
 
 # =====================================================================
-# 4. REPORTLAB PDF REPORT GENERATOR (CLEAN FOOTER HASH)
+# 4. REPORTLAB PDF REPORT GENERATOR (WITH FOOTER VERIFICATION HASH)
 # =====================================================================
 
-def generate_pdf_report(results: Dict[str, Any]) -> bytes:
+def generate_pdf_report(results: Dict[str, Any], multi_results: Optional[Dict[str, Any]] = None) -> bytes:
+    """Generates an executive PDF report with SHA-256 audit fingerprint in the footer."""
     if not REPORTLAB_AVAILABLE:
         return b"%PDF-1.4 empty placeholder"
 
@@ -243,13 +248,16 @@ def generate_pdf_report(results: Dict[str, Any]) -> bytes:
         'ReportTitle', parent=styles['Heading1'], fontSize=16, textColor=colors.HexColor('#1E3A8A'), spaceAfter=10
     )
     story.append(Paragraph("IFRS / NSE ESG Forensic Assurance Audit", title_style))
-    story.append(Paragraph("<b>Standard Alignment:</b> IFRS S1, IFRS S2, NSE ESG, ISO 14064", styles['Normal']))
+    story.append(Paragraph("<b>Standard Alignment:</b> IFRS S1, IFRS S2, NSE ESG, ISO 14064, UNDP SDG 16", styles['Normal']))
     story.append(Spacer(1, 12))
+
+    comp_score_str = f"{multi_results.get('composite_score_100', 0)} / 100 ({multi_results.get('maturity_stage', 'N/A')})" if multi_results else "N/A"
 
     data = [
         ["Audit Parameter", "Forensic Result"],
         ["Entity Name", str(results.get("entity_name", "Unknown"))],
         ["ESG Index Score (1-9)", f"{results.get('esg_index_score', 1.0)} / 9.0 ({results.get('esg_rating_label', 'N/A')})"],
+        ["Multi-Framework Composite Score", comp_score_str],
         ["Assurance Risk State", str(results.get("assurance_risk_state", "N/A"))],
         ["Scope 1 Emissions", f"{results.get('scope_1_tco2e', 0):,.2f} tCO2e"],
         ["Scope 2 Emissions", f"{results.get('scope_2_tco2e', 0):,.2f} tCO2e"],
@@ -267,7 +275,6 @@ def generate_pdf_report(results: Dict[str, Any]) -> bytes:
     story.append(t)
     story.append(Spacer(1, 20))
 
-    # SHA-256 Hash relocated to Document Footer
     footer_style = ParagraphStyle('FooterStyle', parent=styles['Italic'], fontSize=8, textColor=colors.HexColor('#64748B'))
     story.append(Paragraph(f"<b>Document Verification Fingerprint (SHA-256):</b> {results.get('data_lineage_sha256', 'N/A')}", footer_style))
     story.append(Paragraph("Automated forensic assurance report evaluating corporate disclosure data, regional impact, and greenwashing risks.", footer_style))

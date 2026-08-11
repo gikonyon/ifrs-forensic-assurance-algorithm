@@ -22,7 +22,7 @@ except ImportError:
 
 try:
     from reportlab.lib.pagesizes import letter
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, KeepTogether
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib import colors
     REPORTLAB_AVAILABLE = True
@@ -374,7 +374,7 @@ class MultiFrameworkEngine:
 
 
 # =====================================================================
-# 5. PDF REPORT GENERATOR
+# 5. EXPANDED PDF REPORT GENERATOR (FULL COMPREHENSIVE AUDIT)
 # =====================================================================
 
 def generate_pdf_report(results: Dict[str, Any], multi_results: Optional[Dict[str, Any]] = None) -> bytes:
@@ -382,42 +382,130 @@ def generate_pdf_report(results: Dict[str, Any], multi_results: Optional[Dict[st
         return b"%PDF-1.4 empty placeholder"
 
     buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
+    doc = SimpleDocTemplate(
+        buffer, 
+        pagesize=letter, 
+        rightMargin=36, 
+        leftMargin=36, 
+        topMargin=36, 
+        bottomMargin=36
+    )
     story = []
     styles = getSampleStyleSheet()
 
-    title_style = ParagraphStyle(
-        'ReportTitle', parent=styles['Heading1'], fontSize=16, textColor=colors.HexColor('#1E3A8A'), spaceAfter=10
-    )
+    # Custom Paragraph Styles
+    title_style = ParagraphStyle('ReportTitle', parent=styles['Heading1'], fontSize=16, textColor=colors.HexColor('#1E3A8A'), spaceAfter=6)
+    section_heading = ParagraphStyle('SectionHeading', parent=styles['Heading2'], fontSize=12, textColor=colors.HexColor('#1E3A8A'), spaceBefore=10, spaceAfter=6)
+    normal_style = ParagraphStyle('ReportNormal', parent=styles['Normal'], fontSize=9, leading=12)
+    bullet_style = ParagraphStyle('ReportBullet', parent=normal_style, leftIndent=12, spaceAfter=3)
+    rec_style = ParagraphStyle('ReportRec', parent=normal_style, textColor=colors.HexColor('#0F172A'), spaceAfter=6)
+    footer_style = ParagraphStyle('FooterStyle', parent=styles['Italic'], fontSize=8, textColor=colors.HexColor('#64748B'))
+
+    # HEADER SECTION
     story.append(Paragraph("IFRS / NSE ESG Forensic Assurance Audit", title_style))
-    story.append(Paragraph("<b>Standard Alignment:</b> IFRS S1, IFRS S2, NSE ESG, ISO 14064, UNDP SDG 16", styles['Normal']))
-    story.append(Spacer(1, 12))
+    story.append(Paragraph("<b>Standard Alignment:</b> IFRS S1, IFRS S2, NSE ESG Manual, ISO 14064, UNDP SDG 16", normal_style))
+    story.append(Spacer(1, 10))
 
+    # SECTION 1: EXECUTIVE VERIFICATION SUMMARY TABLE
+    story.append(Paragraph("1. Executive ESG Verification Summary", section_heading))
+    
     comp_score_str = f"{multi_results.get('composite_score_100', 0)} / 100 ({multi_results.get('maturity_stage', 'N/A')})" if multi_results else "N/A"
+    initiatives_str = ", ".join(results.get("community_impact", {}).get("verified_initiatives", [])) or "None"
+    exceptions_str = ", ".join(results.get("exceptions_detected", [])) or "None"
 
-    data = [
-        ["Audit Parameter", "Forensic Result"],
-        ["Entity Name", str(results.get("entity_name", "Unknown"))],
-        ["ESG Index Score (1-9)", f"{results.get('esg_index_score', 1.0)} / 9.0 ({results.get('esg_rating_label', 'N/A')})"],
-        ["Multi-Framework Composite Score", comp_score_str],
-        ["Assurance Risk State", str(results.get("assurance_risk_state", "N/A"))],
-        ["Scope 1 Emissions", f"{results.get('scope_1_tco2e', 0):,.2f} tCO2e"],
-        ["Scope 2 Emissions", f"{results.get('scope_2_tco2e', 0):,.2f} tCO2e"],
-        ["Greenwashing Risk", str(results.get("greenwash_analysis", {}).get("risk_level", "VERIFIED"))],
-        ["Community Impact Initiatives", ", ".join(results.get("community_impact", {}).get("verified_initiatives", [])) or "None"],
+    exec_table_data = [
+        ["Audit Parameter", "Extracted / Calculated Value", "Forensic Status & Classification"],
+        ["Entity Name", str(results.get("entity_name", "Unknown")), "Recognized Entity"],
+        ["Reporting Period", str(results.get("reporting_period", "N/A")), "Active Cycle"],
+        ["ESG Index Score (1–9 Scale)", f"{results.get('esg_index_score', 1.0)} / 9.0", str(results.get("esg_rating_label", "N/A"))],
+        ["Multi-Framework Composite Score", comp_score_str, "Composite Benchmark"],
+        ["Assurance Risk State", str(results.get("assurance_risk_state", "N/A")), "Action / Verification Flagged"],
+        ["Scope 1 GHG Emissions", f"{results.get('scope_1_tco2e', 0):,.2f} tCO2e", "Quantitative Baseline Logged"],
+        ["Scope 2 GHG Emissions", f"{results.get('scope_2_tco2e', 0):,.2f} tCO2e", "Quantitative Baseline Logged"],
+        ["Recalculated GHG Intensity", f"{results.get('recalculated_ghg_intensity', 0):,.2f} tCO2e / output", "Recalculated Metric"],
+        ["Greenwashing Risk Level", str(results.get("greenwash_analysis", {}).get("risk_level", "VERIFIED")), f"Buzzword Count: {results.get('greenwash_analysis', {}).get('narrative_buzzword_count', 0)}"],
+        ["Community Impact Score", f"{results.get('community_impact', {}).get('score', 0)} / 10.0", "High Local Alignment"],
+        ["Verified Initiatives", initiatives_str, "Verified Indicators Detected"],
+        ["Exceptions Detected", exceptions_str, "Flagged Anomalies"]
     ]
 
-    t = Table(data, colWidths=[200, 340])
-    t.setStyle(TableStyle([
+    t1 = Table(exec_table_data, colWidths=[160, 180, 200])
+    t1.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1E3A8A')),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, -1), 8),
         ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CBD5E1')),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+        ('TOPPADDING', (0, 0), (-1, -1), 4),
     ]))
-    story.append(t)
-    story.append(Spacer(1, 20))
+    story.append(t1)
+    story.append(Spacer(1, 12))
 
-    footer_style = ParagraphStyle('FooterStyle', parent=styles['Italic'], fontSize=8, textColor=colors.HexColor('#64748B'))
+    if multi_results:
+        # SECTION 2: FRAMEWORK SCORE BREAKDOWN
+        story.append(Paragraph("2. Multi-Framework Score Breakdown", section_heading))
+        sub_scores = multi_results.get("sub_scores", {})
+        
+        breakdown_table_data = [
+            ["Framework Framework Module", "Weighted Score (%)", "Status Tier"],
+            ["IFRS 1–9 Index (Rescaled)", f"{sub_scores.get('ifrs_index_rescaled', 0.0)}%", "Core Metric"],
+            ["UNEP FI / UNDP SDG Mapping Score", f"{sub_scores.get('sdg_mapping_score', 0.0)}%", "High Alignment"],
+            ["NSE ESG Manual Guidance Score", f"{sub_scores.get('nse_esg_score', 0.0)}%", "Regulatory Coverage"],
+            ["ISO Compliance Coverage Score", f"{sub_scores.get('iso_compliance_score', 0.0)}%", "Technical Gap"],
+            ["EU CSRD / ESRS Signals Score", f"{sub_scores.get('eu_csrd_score', 0.0)}%", "International Alignment"]
+        ]
+
+        t2 = Table(breakdown_table_data, colWidths=[240, 150, 150])
+        t2.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#334155')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 8),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CBD5E1')),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+            ('TOPPADDING', (0, 0), (-1, -1), 4),
+        ]))
+        story.append(t2)
+        story.append(Spacer(1, 12))
+
+        # SECTION 3: VALIDATED STRENGTHS & COVERAGE
+        story.append(Paragraph("3. Validated Strengths & Alignment", section_heading))
+        
+        aligned_sdgs = list(multi_results.get("sdg_aligned_initiatives", {}).keys())
+        story.append(Paragraph("<b>Validated UN Sustainable Development Goals (SDGs):</b>", normal_style))
+        if aligned_sdgs:
+            for sdg in aligned_sdgs:
+                story.append(Paragraph(f"• [VERIFIED] {sdg}", bullet_style))
+        else:
+            story.append(Paragraph("• None detected", bullet_style))
+
+        story.append(Spacer(1, 4))
+        nse_pillars = multi_results.get("nse_pillars_covered", [])
+        story.append(Paragraph("<b>Validated NSE ESG Guidance Pillars:</b>", normal_style))
+        if nse_pillars:
+            for pil in nse_pillars:
+                story.append(Paragraph(f"• [VERIFIED] {pil}", bullet_style))
+        else:
+            story.append(Paragraph("• None detected", bullet_style))
+
+        story.append(Spacer(1, 12))
+
+        # SECTION 4: CONSTRUCTIVE IMPROVEMENT ROADMAP
+        story.append(Paragraph("4. Constructive Improvement Roadmap", section_heading))
+        roadmap = multi_results.get("improvement_roadmap", [])
+        if roadmap:
+            for idx, item in enumerate(roadmap, 1):
+                rec_text = f"<b>Action Item {idx}:</b> [{item.get('framework')}] — <b>{item.get('item')}</b><br/>" \
+                           f"<i>Recommendation:</i> {item.get('recommendation')}"
+                story.append(Paragraph(rec_text, rec_style))
+                story.append(Spacer(1, 4))
+        else:
+            story.append(Paragraph("No critical framework gaps identified. Excellent sustainability governance alignment.", normal_style))
+
+    story.append(Spacer(1, 16))
+
+    # FOOTER WITH SHA-256 HASH
     story.append(Paragraph(f"<b>Document Verification Fingerprint (SHA-256):</b> {results.get('data_lineage_sha256', 'N/A')}", footer_style))
     story.append(Paragraph("Automated forensic assurance report evaluating corporate disclosure data, regional impact, and greenwashing risks.", footer_style))
 

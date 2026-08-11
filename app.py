@@ -37,13 +37,9 @@ st.set_page_config(
     layout="wide"
 )
 
-# Initialize Session State Variables Robustly
-if "entity_input" not in st.session_state:
-    st.session_state["entity_input"] = ""
-if "main_files_state" not in st.session_state:
-    st.session_state["main_files_state"] = None
-if "verif_files_state" not in st.session_state:
-    st.session_state["verif_files_state"] = None
+# Initialize Session State Variables Safely
+if "detected_entity" not in st.session_state:
+    st.session_state["detected_entity"] = ""
 
 
 # -----------------------------------------------------------------------------
@@ -123,7 +119,6 @@ class EnhancedDisclosureParser:
     @staticmethod
     def extract_entity_name(text: str, filename: str) -> str:
         cover_text = text[:1000]
-        # Check known patterns or prominent corporate keywords
         entity_patterns = [
             r"([A-Za-z0-9\s&,.-]+)\s+(?:PLC|Limited|Ltd|Group|Bank|Corporation|Corp)\b",
             r"(?:Company Name|Entity|Issuer|Prepared for):\s*([A-Za-z0-9\s&,.-]+)"
@@ -134,7 +129,6 @@ class EnhancedDisclosureParser:
                 val = match.group(1).strip()
                 if len(val) > 2 and len(val) < 50:
                     return val
-        # Fallback to filename cleanup
         clean_name = filename.rsplit('.', 1)[0].replace("_", " ").replace("-", " ").title()
         return clean_name
 
@@ -170,7 +164,7 @@ class DynamicForensicEvaluator:
             except ValueError:
                 pass
 
-        # Calculate Calibrated Composite Index & Star Rating based on verification volume and auditor backing
+        # Calculate Calibrated Composite Index & Star Rating
         base_score = 7.5
         if len(verif_texts) > 0:
             base_score += 0.8
@@ -320,22 +314,13 @@ def categorize_attachment(filename: str) -> str:
 st.title("🛡️ Uujuzi Comprehensive ESG Forensic & Assurance Engine")
 st.markdown("Upload verifiable data, audits from reputable auditors, and global certifications to generate calibrated ESG scores and greenwashing risk analyses.")
 
-# Sidebar Configuration (Placed BEFORE file uploads so entity name updates dynamically)
-st.sidebar.header("Entity & Audit Setup")
-
-if st.sidebar.button("🔄 Clear Assessment / Refresh"):
-    st.session_state["entity_input"] = ""
-    st.session_state["main_files_state"] = None
-    st.session_state["verif_files_state"] = None
-    st.rerun()
-
 # Ingest Workflow
 st.subheader("1. Ingest Main Disclosures")
 main_files = st.file_uploader(
     "Upload Annual Reports, TCFD Disclosures, or Sustainable Finance Reports",
     type=["pdf", "txt", "docx", "xlsx", "xls", "html"],
     accept_multiple_files=True,
-    key="main_files_state"
+    key="main_disclosures"
 )
 
 st.subheader("2. Ingest Verifiable Audits & Certifications")
@@ -343,7 +328,7 @@ verification_files = st.file_uploader(
     "Upload Independent Third-Party Audits (Deloitte, PwC, KPMG, EY) & Certifications",
     type=["pdf", "txt", "docx", "xlsx", "xls", "html"],
     accept_multiple_files=True,
-    key="verif_files_state"
+    key="verification_layer"
 )
 
 # Processing Files & Parsing
@@ -375,15 +360,23 @@ if verification_files:
 
 all_docs = parsed_main + parsed_verif
 
-# Auto-extract and update entity name in session state when main disclosures are uploaded
-if parsed_main and not st.session_state.get("entity_input"):
-    detected_entity = EnhancedDisclosureParser.extract_entity_name(parsed_main[0]["full_text"], parsed_main[0]["name"])
-    st.session_state["entity_input"] = detected_entity
+# Auto-detect entity name when main disclosures are uploaded
+if parsed_main and not st.session_state["detected_entity"]:
+    st.session_state["detected_entity"] = EnhancedDisclosureParser.extract_entity_name(
+        parsed_main[0]["full_text"], parsed_main[0]["name"]
+    )
+
+# Sidebar Configuration
+st.sidebar.header("Entity & Audit Setup")
+
+if st.sidebar.button("🔄 Clear Assessment / Refresh"):
+    st.session_state["detected_entity"] = ""
+    st.rerun()
 
 company_name = st.sidebar.text_input(
     "Target Entity Name", 
-    placeholder="e.g. Acme Corp Ltd",
-    key="entity_input"
+    value=st.session_state["detected_entity"],
+    placeholder="e.g. Acme Corp Ltd"
 )
 
 # Extract texts for evaluation
@@ -417,8 +410,9 @@ else:
     
     with tab1:
         st.markdown("#### Calibrated Institutional Scorecard")
+        active_entity = company_name.strip() if company_name.strip() else "Uploaded Entity"
         scorecard_display = [{
-            "Institution / Entity": company_name.strip() if company_name.strip() else "Uploaded Entity",
+            "Institution / Entity": active_entity,
             "Calibrated Composite Index": f"{forensic_results['calibrated_index']:.2f} / 9.0",
             "Star Rating": forensic_results['star_rating'],
             "Greenwashing Risk Status": forensic_results['greenwashing_risk_status'],

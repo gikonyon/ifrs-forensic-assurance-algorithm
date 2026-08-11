@@ -22,10 +22,10 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 # 1. REPORTLAB PDF GENERATOR ENGINE
 # ==========================================
 
-def generate_pdf_report(logo_bytes, claims_data):
+def generate_pdf_report(logo_bytes, claims_data, overall_score, assurance_status):
     """
     Generates a formal, audit-ready PDF report featuring the Uujuzi Logo 
-    in the top-left corner, SDG Verification Matrix, and Regional Center Recommendations.
+    in the top-left corner, Equivalence Validation Matrix, and Regional Center Recommendations.
     """
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -109,8 +109,12 @@ def generate_pdf_report(logo_bytes, claims_data):
     story.append(header_table)
     story.append(Spacer(1, 10))
 
-    # --- METADATA BANNER ---
-    meta_text = f"<b>Source File:</b> SDID-2025-REPORT.pdf / DOCX | <b>Generated:</b> {datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')} | <b>Assurance Framework:</b> ISSA 5000 / IFRS S1 & S2"
+    # --- METADATA & SCORE BANNER ---
+    meta_text = (
+        f"<b>Assurance Readiness Score:</b> {overall_score}% ({assurance_status}) | "
+        f"<b>Generated:</b> {datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')} | "
+        f"<b>Framework:</b> ISSA 5000 / IFRS S1 & S2 / NSE ESG Guidelines"
+    )
     meta_table = Table([[Paragraph(meta_text, style_body)]], colWidths=[540])
     meta_table.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, -1), LIGHT_BG),
@@ -118,18 +122,17 @@ def generate_pdf_report(logo_bytes, claims_data):
         ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
     ]))
     story.append(meta_table)
-    story.append(Spacer(1, 15))
+    story.append(Spacer(1, 12))
 
-    # --- SECTION 1: EXTRACTED CLAIMS & SDG MATRIX ---
-    story.append(Paragraph("1. Extracted Self-Reported Claims & Global SDG Matrix", style_heading))
+    # --- SECTION 1: EXTRACTED CLAIMS & EQUIVALENCE MATRIX ---
+    story.append(Paragraph("1. Extracted Disclosures & Equivalent Certification Matrix", style_heading))
     
     matrix_headers = [
-        Paragraph("Claim", style_table_header),
-        Paragraph("Status", style_table_header),
-        Paragraph("Cert Type", style_table_header),
-        Paragraph("Detected ID", style_table_header),
+        Paragraph("Claim Disclosure", style_table_header),
+        Paragraph("Verification Status", style_table_header),
+        Paragraph("Detected ID / Cert Code", style_table_header),
         Paragraph("Mapped SDG", style_table_header),
-        Paragraph("Global Standard Framework", style_table_header)
+        Paragraph("Recognized Equivalent Frameworks", style_table_header)
     ]
     
     matrix_rows = [matrix_headers]
@@ -137,13 +140,12 @@ def generate_pdf_report(logo_bytes, claims_data):
         matrix_rows.append([
             Paragraph(str(item.get("claim", "")), style_body),
             Paragraph(str(item.get("status", "")), style_body),
-            Paragraph(str(item.get("cert_type", "")), style_body),
-            Paragraph(str(item.get("detected_id", "") or "None"), style_body),
+            Paragraph(str(item.get("detected_id", "") or "None (Requires Attachment)"), style_body),
             Paragraph(str(item.get("mapped_sdg", "")), style_body),
             Paragraph(str(item.get("global_framework", "")), style_body),
         ])
 
-    matrix_table = Table(matrix_rows, colWidths=[90, 50, 90, 80, 110, 120])
+    matrix_table = Table(matrix_rows, colWidths=[100, 80, 100, 110, 150])
     matrix_table.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), PRIMARY_COLOR),
         ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
@@ -153,9 +155,9 @@ def generate_pdf_report(logo_bytes, claims_data):
         ('PADDING', (0, 0), (-1, -1), 4),
     ]))
     story.append(matrix_table)
-    story.append(Spacer(1, 15))
+    story.append(Spacer(1, 12))
 
-    # --- SECTION 2: REGIONAL CERTIFICATION CENTERS (FIXED XML BR TAGS) ---
+    # --- SECTION 2: REGIONAL CERTIFICATION CENTERS ---
     story.append(Paragraph("2. Strategic Recommendation: Regional Certification Centers", style_heading))
     
     recs_headers = [
@@ -193,12 +195,14 @@ def generate_pdf_report(logo_bytes, claims_data):
         ('PADDING', (0, 0), (-1, -1), 5),
     ]))
     story.append(recs_table)
-    story.append(Spacer(1, 15))
+    story.append(Spacer(1, 12))
 
-    # --- FOOTER STATEMENT ---
+    # --- FOOTER & GREENWASHING NOTICE ---
     footer_p = Paragraph(
-        "<b>Uujuzi Quality Assurance Notice:</b> This evidence verification report is compiled under standard ESG forensic metrics. "
-        "Claims flagged as 'None' require official certification upload in the Uujuzi Vault prior to external audit submission.",
+        "<b>Uujuzi Forensic Validation Notice:</b> Disclosures identified during report intake are classified as "
+        "<i>Self-Reported Claims</i> until substantiated. To eliminate greenwashing risks and achieve full audit readiness under ISSA 5000 and IFRS S1/S2 guidelines, "
+        "entities are recommended to attach official certificate reference numbers or upload supporting accredited documents "
+        "(e.g., NEMA, DOSHS, ISO, or UN Accreditations) in the Uujuzi Evidence Vault.",
         style_body
     )
     story.append(footer_p)
@@ -239,7 +243,7 @@ def get_default_claims_matrix():
     return [
         {
             "claim": "NEMA Environmental Impact Assessment Audit",
-            "status": "Self-Reported",
+            "status": "Self-Reported (Unverified)",
             "cert_type": "NEMA_EIA_LICENCE",
             "detected_id": "NEMA/LEAD/1042",
             "mapped_sdg": "SDG 13 (Climate Action), SDG 15 (Life on Land)",
@@ -247,15 +251,15 @@ def get_default_claims_matrix():
         },
         {
             "claim": "DOSHS Workplace Safety Compliance",
-            "status": "Self-Reported",
+            "status": "Self-Reported (Unverified)",
             "cert_type": "DOSHS_SAFETY_INSPECTION_CERTIFICATE",
             "detected_id": "DOSHS/2025/8892",
             "mapped_sdg": "SDG 3 (Good Health), SDG 8 (Decent Work)",
-            "global_framework": "ILO Convention 155 / WIBA 2007 Compliance"
+            "global_framework": "ILO Convention 155 / ISO 45001 / WIBA 2007"
         },
         {
             "claim": "ISO 14001 Environmental Management System",
-            "status": "Claimed",
+            "status": "Claimed (Pending Vault)",
             "cert_type": "ISO_14001_ENVIRONMENTAL_CERTIFICATE",
             "detected_id": "ISO14001-KE992831",
             "mapped_sdg": "SDG 12 (Responsible Consumption), SDG 13 (Climate Action)",
@@ -263,31 +267,31 @@ def get_default_claims_matrix():
         },
         {
             "claim": "Scope 2 Carbon Reduction of 30%",
-            "status": "Self-Reported",
+            "status": "Self-Reported (Greenwashing Risk)",
             "cert_type": "GHG_PROTOCOL_AUDIT",
             "detected_id": None,
             "mapped_sdg": "SDG 7 (Clean Energy), SDG 13 (Climate Action)",
-            "global_framework": "GHG Protocol Corporate Standard / PCAF Standards"
+            "global_framework": "GHG Protocol / ISO 14064 / PCAF Standards"
         },
         {
             "claim": "Minimum Wage & Fair Labor Register",
-            "status": "Self-Reported",
+            "status": "Self-Reported (Greenwashing Risk)",
             "cert_type": "MINIMUM_WAGE_PAYROLL_REGISTER",
             "detected_id": None,
             "mapped_sdg": "SDG 8 (Decent Work), SDG 10 (Reduced Inequalities)",
-            "global_framework": "ILO Core Labor Standards / GRI 401 & 405"
+            "global_framework": "ILO Core Labor Standards / UNGC / GRI 401"
         },
         {
             "claim": "Financial Inclusion & Youth Scholarships",
-            "status": "Self-Reported",
+            "status": "Self-Reported (Greenwashing Risk)",
             "cert_type": "SCHOLARSHIP_DISBURSEMENT_LOG",
             "detected_id": None,
             "mapped_sdg": "SDG 1 (No Poverty), SDG 4 (Quality Education)",
-            "global_framework": "UN Global Compact Principles / GRI 413"
+            "global_framework": "UN Global Compact / B Corp Standards / GRI 413"
         },
         {
             "claim": "Board E&S Oversight Charter",
-            "status": "Controlled",
+            "status": "Controlled & Logged",
             "cert_type": "BOARD_ES_CHARTER",
             "detected_id": "BOARD-MIN-2025-08",
             "mapped_sdg": "SDG 16 (Peace, Justice & Strong Institutions)",
@@ -310,6 +314,9 @@ st.set_page_config(
 if "logo_bytes" not in st.session_state:
     st.session_state.logo_bytes = None
 
+if "vault_documents" not in st.session_state:
+    st.session_state.vault_documents = []
+
 # TOP HEADER BAR WITH LOGO IN LEFT CORNER
 header_col1, header_col2 = st.columns([1, 4])
 
@@ -323,26 +330,27 @@ with header_col1:
 
 with header_col2:
     st.title("UUJUZI ESG EVIDENCE & FORENSIC ASSURANCE LAYER")
-    st.caption("Real-Economy Compliance & SDG Proof Engine | Sector Focus: Commercial Banking & Manufacturing")
+    st.caption("Real-Economy Compliance & Anti-Greenwashing Validation Engine | Sector Focus: Commercial Banking & Manufacturing")
 
 st.markdown("---")
 
-tab_report, tab_centers, tab_vault = st.tabs([
-    "📊 Report Analysis & SDG Matrix",
+tab_report, tab_validation, tab_centers, tab_vault = st.tabs([
+    "📊 Report Intake & Analysis",
+    "🛡️ Validation & Equivalence Push",
     "🏢 Regional Certification Centers",
     "📂 Evidence Vault"
 ])
 
 # ------------------------------------------
-# TAB 1: REPORT ANALYSIS & SDG MATRIX
+# TAB 1: REPORT INTAKE & ANALYSIS
 # ------------------------------------------
 with tab_report:
-    st.header("Extracted Self-Reported Claims & Certifications")
-    st.caption("Upload company reports in PDF or Word format (.pdf, .docx) for parsing and assurance analysis.")
+    st.header("Phase 1: Report Intake & Disclosure Extraction")
+    st.caption("Upload company reports in PDF or Word format (.pdf, .docx). Claims without verified codes are flagged to prevent greenwashing.")
     
     col_file1, col_file2 = st.columns([1, 1])
     with col_file1:
-        uploaded_doc = st.file_uploader("Upload ESG / Annual Report (PDF or Word)", type=["pdf", "docx"])
+        uploaded_doc = st.file_uploader("Upload Corporate ESG / Annual Report", type=["pdf", "docx"])
         if uploaded_doc:
             doc_data = parse_uploaded_report(uploaded_doc.read(), uploaded_doc.name)
             st.success(f"File Ingested: **{doc_data['filename']}** ({doc_data['size_kb']})")
@@ -350,16 +358,44 @@ with tab_report:
     claims_matrix = get_default_claims_matrix()
     df_claims = pd.DataFrame(claims_matrix)
     
+    st.subheader("Extracted Disclosure Ledger")
     st.dataframe(df_claims, use_container_width=True)
+
+# ------------------------------------------
+# TAB 2: VALIDATION & EQUIVALENCE PUSH
+# ------------------------------------------
+with tab_validation:
+    st.header("Phase 2: Recommendation & Anti-Greenwashing Validation")
+    st.caption("Push narrative statements into verified statuses. Equivalent global certifications (ISO, UNGC, B Corp) are accepted alongside local permits.")
+    
+    unverified_count = sum(1 for c in claims_matrix if c["detected_id"] is None)
+    verified_count = len(claims_matrix) - unverified_count + len(st.session_state.vault_documents)
+    overall_score = min(100, int((verified_count / len(claims_matrix)) * 100))
+    
+    assurance_status = "AUDIT-READY" if overall_score >= 80 else ("MODERATE RISK" if overall_score >= 50 else "HIGH GREENWASHING RISK")
+    
+    col_s1, col_s2, col_s3 = st.columns(3)
+    col_s1.metric("Assurance Readiness Score", f"{overall_score}%")
+    col_s2.metric("Unverified Narrative Claims", f"{unverified_count} Gaps")
+    col_s3.metric("Assurance Status", assurance_status)
+    
+    st.markdown("---")
+    st.subheader("Actionable Recommendations for Next-Year Preparation")
+    
+    st.info("""
+    **Validation & Substitution Guidance:**
+    * **Local vs. Global Equivalence:** If local permits (e.g., NEMA) are pending, submitting equivalent global certifications (**ISO 14001, ISO 14064, ISO 45001**) or **UN Global Compact / B Corp Accreditations** satisfies the compliance requirement.
+    * **Multi-Certification Stacking:** Submitting both local permits and global accreditations increases data trust scores and moves disclosures to *Fully Bankable*.
+    * **Eliminating Greenwashing:** Narrative claims with no certificate code (`detected_id = None`) must have verified document copies uploaded in the Vault below.
+    """)
     
     st.markdown("---")
     st.subheader("🔒 Export Protected Audit-Ready PDF Report")
-    st.caption("Generates a tamper-evident PDF report complete with the Uujuzi top-left header logo, SDG Matrix, and Regional Center Recommendations.")
     
-    pdf_bytes = generate_pdf_report(st.session_state.logo_bytes, claims_matrix)
+    pdf_bytes = generate_pdf_report(st.session_state.logo_bytes, claims_matrix, overall_score, assurance_status)
     
     st.download_button(
-        label="📥 Download Uujuzi ESG Assurance Report (Protected PDF)",
+        label="📥 Download Official Uujuzi ESG Assurance Report (Protected PDF)",
         data=pdf_bytes,
         file_name=f"Uujuzi_ESG_Assurance_Report_{datetime.datetime.now().strftime('%Y%m%d')}.pdf",
         mime="application/pdf",
@@ -367,7 +403,7 @@ with tab_report:
     )
 
 # ------------------------------------------
-# TAB 2: REGIONAL CERTIFICATION CENTERS
+# TAB 3: REGIONAL CERTIFICATION CENTERS
 # ------------------------------------------
 with tab_centers:
     st.header("Strategic Recommendation: Regional Certification Centers")
@@ -394,19 +430,37 @@ with tab_centers:
     st.table(pd.DataFrame(centers_data))
 
 # ------------------------------------------
-# TAB 3: EVIDENCE VAULT
+# TAB 4: EVIDENCE VAULT
 # ------------------------------------------
 with tab_vault:
     st.header("Targeted Certificate Attachment Vault")
-    st.caption("Upload supporting proof for claims flagged as 'None' to lock SHA-256 evidence for next year's preparation.")
+    st.caption("Upload supporting proof (Local Permits, ISO, UNGC, B Corp, Payroll Audits) to lock SHA-256 evidence for next year's target validation.")
     
     col1, col2 = st.columns([1, 1])
     with col1:
-        st.selectbox("Select Target Claim to Substantiate", df_claims[df_claims['detected_id'].isna()]['claim'].tolist())
-        st.text_input("Enter Official Accreditation ID")
-        st.file_uploader("Upload Official Certificate (PDF/Word/Images)", type=["pdf", "docx", "png", "jpg"], key="vault_file_uploader")
-        if st.button("Commit & Lock Hash"):
-            st.success("Evidence cryptographically hashed and attached to report record!")
+        target_claim = st.selectbox("Select Disclosure to Validate", [c["claim"] for c in claims_matrix])
+        cert_code_input = st.text_input("Certificate Code / Accreditation ID", placeholder="e.g., ISO14001-KE992831, NEMA/LEAD/1042, or UNGC-9921")
+        vault_file = st.file_uploader("Upload Supporting Certificate (PDF/Word/Images)", type=["pdf", "docx", "png", "jpg"], key="vault_file_uploader")
+        
+        if st.button("Commit & Lock SHA-256 Proof", type="primary"):
+            if cert_code_input and vault_file:
+                file_bytes = vault_file.read()
+                file_hash = hashlib.sha256(file_bytes).hexdigest()
+                doc_record = {
+                    "claim": target_claim,
+                    "cert_code": cert_code_input,
+                    "filename": vault_file.name,
+                    "sha256_hash": file_hash[:16] + "...",
+                    "timestamp": datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+                }
+                st.session_state.vault_documents.append(doc_record)
+                st.success(f"Certificate Locked! SHA-256 Hash: {file_hash[:16]}...")
+            else:
+                st.error("Please provide both a Certificate Code and a file upload.")
     
     with col2:
-        st.info("Vault status: Awaiting missing certificate attachments to clear high greenwashing risk items.")
+        st.subheader("Vaulted Evidence Ledger")
+        if st.session_state.vault_documents:
+            st.dataframe(pd.DataFrame(st.session_state.vault_documents), use_container_width=True)
+        else:
+            st.info("Vault status: Awaiting missing certificate attachments to clear high greenwashing risk items.")

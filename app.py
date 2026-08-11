@@ -1,89 +1,290 @@
+import os
 import json
 import csv
-import streamlit as st
-from src.forensic_algorithm import (
-    IFRSForensicEngine, 
-    DocumentExtractor, 
-    EnhancedDisclosureParser, 
-    generate_pdf_report
-)
+import re
+import math
+import hashlib
+import io
+from html.parser import HTMLParser
+from typing import Dict, List, Any, Optional
 
-# Set Streamlit Page Layout
-st.set_page_config(
-    page_title="IFRS & NSE ESG Forensic Assurance Engine",
-    page_icon="🔍",
-    layout="wide"
-)
+# Optional Third-Party Imports with Safe Fallbacks
+try:
+    import pypdf
+except ImportError:
+    pypdf = None
 
-# Header Section
-st.title("IFRS / NSE ESG Forensic Verification Platform")
-st.caption("Transaction-level verification, greenwashing detection, and regional impact evaluation.")
+try:
+    import docx
+except ImportError:
+    docx = None
 
-st.markdown("---")
-st.subheader("1. Upload Sustainability Disclosure (PDF, Word, or HTML)")
+try:
+    from reportlab.lib.pagesizes import letter
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib import colors
+    REPORTLAB_AVAILABLE = True
+except ImportError:
+    REPORTLAB_AVAILABLE = False
 
-# File Uploader Widget
-uploaded_file = st.file_uploader(
-    "Drag and drop your corporate disclosure document here", 
-    type=["pdf", "docx", "doc", "html", "htm"],
-    help="Upload an IFRS S1/S2, NSE ESG, or corporate disclosure file."
-)
 
-if uploaded_file is not None:
-    raw_bytes = uploaded_file.getvalue()
-    filename = uploaded_file.name
+# =====================================================================
+# 1. MULTI-FORMAT DOCUMENT EXTRACTOR (HTML, PDF, DOCX)
+# =====================================================================
 
-    # 1. Extract text from uploaded file
-    extracted_text = DocumentExtractor.process_file(raw_bytes, filename)
+class DisclosureHTMLParser(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.text_content = []
+
+    def handle_data(self, data: str):
+        cleaned = data.strip()
+        if cleaned:
+            self.text_content.append(cleaned)
+
+    def get_text(self) -> str:
+        return " ".join(self.text_content)
+
+
+class DocumentExtractor:
+    """Extracts raw text content from HTML, PDF, and DOCX files."""
     
-    # 2. Parse text for metrics, greenwashing flags, and regional impact
-    parser = EnhancedDisclosureParser()
-    parsed_data = parser.parse_text(extracted_text)
+    @staticmethod
+    def extract_text_from_html(raw_bytes: bytes) -> str:
+        html_str = raw_bytes.decode("utf-8", errors="ignore")
+        parser = DisclosureHTMLParser()
+        parser.feed(html_str)
+        return parser.get_text()
+
+    @staticmethod
+    def extract_text_from_pdf(raw_bytes: bytes) -> str:
+        if pypdf is None:
+            return "Error: pypdf library is not installed."
+        pdf_file = io.BytesIO(raw_bytes)
+        reader = pypdf.PdfReader(pdf_file)
+        text = []
+        for page in reader.pages:
+            extracted = page.extract_text()
+            if extracted:
+                text.append(extracted)
+        return " ".join(text)
+
+    @staticmethod
+    def extract_text_from_docx(raw_bytes: bytes) -> str:
+        if docx is None:
+            return "Error: python-docx library is not installed."
+        docx_file = io.BytesIO(raw_bytes)
+        doc = docx.Document(docx_file)
+        text = [para.text for para in doc.paragraphs if para.text.strip()]
+        return " ".join(text)
+
+    @classmethod
+    def process_file(cls, raw_bytes: bytes, filename: str) -> str:
+        ext = os.path.splitext(filename)[1].lower()
+        if ext in [".html", ".htm"]:
+            return cls.extract_text_from_html(raw_bytes)
+        elif ext == ".pdf":
+            return cls.extract_text_from_pdf(raw_bytes)
+        elif ext in [".docx", ".doc"]:
+            return cls.extract_text_from_docx(raw_bytes)
+        else:
+            return raw_bytes.decode("utf-8", errors="ignore")
+
+
+# =====================================================================
+# 2. ENHANCED DISCLOSURE PARSER (IFRS, NSE, GREENWASHING, COMMUNITY)
+# =====================================================================
+
+class EnhancedDisclosureParser:
+    """Parses text for standard IFRS metrics, Greenwashing risk flags, and regional community investments."""
     
-    # 3. Run forensic verification engine
-    engine = IFRSForensicEngine()
-    results = engine.verify_disclosure(parsed_data, raw_bytes)
+    GREENWASH_KEYWORDS = [
+        "net zero", "carbon neutral", "eco friendly", "sustainable future",
+        "green initiative", "climate champion", "environmentally conscious"
+    ]
 
-    st.markdown("---")
-    st.subheader("2. Key ESG & Forensic Indicators")
+    COMMUNITY_BENEFIT_KEYWORDS = [
+        "water source", "water point", "ict training", "hospital upgrade",
+        "skills development", "regional infrastructure", "local community"
+    ]
 
-    # Display High-Level Metric Cards
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Entity Name", results.get("entity_name", "Unknown"))
-    c2.metric("GHG Intensity", f"{results.get('recalculated_ghg_intensity', 0):.4f}")
-    c3.metric("Governance HHI", f"{results.get('governance_hhi', 0):.4f}")
-    c4.metric("Assurance Risk State", results.get("assurance_risk_state", "N/A"))
+    def parse_text(self, text: str) -> Dict[str, Any]:
+        data = {
+            "entity_name": "Unknown Entity",
+            "reporting_period": "2025/2026",
+            "metrics": {},
+            "governance": {},
+            "greenwash_analysis": {},
+            "community_impact": {}
+        }
 
-    c5, c6, c7 = st.columns(3)
-    c5.metric("Greenwashing Risk", results.get("greenwash_analysis", {}).get("risk_level", "LOW_OR_VERIFIED"))
-    c6.metric("Community Impact Score", f"{results.get('community_impact', {}).get('score', 0):.2f}")
-    c7.metric("Data Quality Tier", results.get("data_quality", {}).get("tier", "N/A"))
+        # Entity Extraction
+        entity_match = re.search(r"(?:Company Name|Entity):\s*([A-Za-z0-9\s&]+)", text, re.I)
+        if entity_match:
+            data["entity_name"] = entity_match.group(1).strip()
 
-    st.markdown("---")
-    st.subheader("3. Instant ESG Audit Reports & Data Lineage")
+        # Climate Variables
+        s1_match = re.search(r"Scope\s*1\s*(?:Emissions)?:\s*([\d,]+(?:\.\d+)?)", text, re.I)
+        s2_match = re.search(r"Scope\s*2\s*(?:Emissions)?:\s*([\d,]+(?:\.\d+)?)", text, re.I)
+        output_match = re.search(r"Total\s*Output:\s*([\d,]+(?:\.\d+)?)", text, re.I)
 
-    # Display Full Analytical JSON Payload
-    st.json(results)
+        if s1_match: data["metrics"]["scope_1"] = float(s1_match.group(1).replace(",", ""))
+        if s2_match: data["metrics"]["scope_2"] = float(s2_match.group(1).replace(",", ""))
+        if output_match: data["metrics"]["total_output"] = float(output_match.group(1).replace(",", ""))
 
-    # Generate PDF Report Stream
-    pdf_bytes = generate_pdf_report(results)
-    json_str = json.dumps([results], indent=2)
+        # Governance Variables
+        male_match = re.search(r"Male\s*Board\s*Members:\s*(\d+)", text, re.I)
+        female_match = re.search(r"Female\s*Board\s*Members:\s*(\d+)", text, re.I)
 
-    # Download Buttons
-    col_pdf, col_json = st.columns(2)
-    with col_pdf:
-        st.download_button(
-            label="📄 Download PDF Audit Report",
-            data=pdf_bytes,
-            file_name=f"{results.get('entity_name', 'company')}_ESG_Verification_Report.pdf",
-            mime="application/pdf",
-            use_container_width=True
-        )
-    with col_json:
-        st.download_button(
-            label="📥 Download JSON Verification Log",
-            data=json_str,
-            file_name=f"{results.get('entity_name', 'company')}_ESG_Verification_Report.json",
-            mime="application/json",
-            use_container_width=True
-        )
+        if male_match: data["governance"]["male_count"] = int(male_match.group(1))
+        if female_match: data["governance"]["female_count"] = int(female_match.group(1))
+
+        # Greenwashing Risk Analysis
+        text_lower = text.lower()
+        buzzword_count = sum(text_lower.count(kw) for kw in self.GREENWASH_KEYWORDS)
+        data["greenwash_analysis"]["narrative_buzzword_count"] = buzzword_count
+        
+        has_metrics = "scope_1" in data["metrics"] and "scope_2" in data["metrics"]
+        if buzzword_count > 5 and not has_metrics:
+            data["greenwash_analysis"]["risk_level"] = "HIGH_GREENWASHING_RISK"
+        else:
+            data["greenwash_analysis"]["risk_level"] = "LOW_OR_VERIFIED"
+
+        # Localized Community Impact
+        community_hits = [kw for kw in self.COMMUNITY_BENEFIT_KEYWORDS if kw in text_lower]
+        data["community_impact"]["verified_initiatives"] = community_hits
+        data["community_impact"]["score"] = len(community_hits) * 0.25
+
+        return data
+
+
+# =====================================================================
+# 3. FORENSIC VERIFICATION ENGINE
+# =====================================================================
+
+class IFRSForensicEngine:
+    def __init__(self, tolerance_threshold: float = 0.02):
+        self.tolerance_threshold = tolerance_threshold
+
+    def calculate_hhi(self, shares: List[float]) -> float:
+        total = sum(shares)
+        if total == 0:
+            return 0.0
+        normalized = [s / total for s in shares]
+        return sum(s ** 2 for s in normalized)
+
+    def calculate_ghg_intensity(self, scope_1: float, scope_2: float, total_output: float) -> float:
+        if total_output <= 0:
+            return 0.0
+        return (scope_1 + scope_2) / total_output
+
+    def assess_data_quality(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        metrics = data.get("metrics", {})
+        has_s1 = "scope_1" in metrics
+        has_s2 = "scope_2" in metrics
+        has_output = "total_output" in metrics
+
+        score = 0.0
+        if has_s1 and has_s2: score += 0.4
+        if has_output: score += 0.3
+        if len(data.get("governance", {})) > 0: score += 0.3
+
+        if score >= 0.9: classification = "ASSURANCE_READY"
+        elif score >= 0.7: classification = "VERIFIED"
+        elif score >= 0.5: classification = "CONTROLLED"
+        elif score >= 0.3: classification = "DEVELOPING"
+        else: classification = "MINIMAL"
+
+        return {"score": round(score, 2), "tier": classification}
+
+    def verify_disclosure(self, parsed_data: Dict[str, Any], raw_bytes: bytes) -> Dict[str, Any]:
+        metrics = parsed_data.get("metrics", {})
+        gov = parsed_data.get("governance", {})
+
+        s1 = metrics.get("scope_1", 0.0)
+        s2 = metrics.get("scope_2", 0.0)
+        output = metrics.get("total_output", 1.0)
+
+        calc_intensity = self.calculate_ghg_intensity(s1, s2, output)
+
+        board_total = gov.get("male_count", 0) + gov.get("female_count", 0)
+        board_shares = [gov.get("male_count", 0), gov.get("female_count", 0)] if board_total > 0 else [1]
+        hhi_index = self.calculate_hhi(board_shares)
+
+        file_hash = hashlib.sha256(raw_bytes).hexdigest()
+
+        exceptions = []
+        if output <= 0:
+            exceptions.append("INVALID_OUTPUT_DENOMINATOR")
+        if s1 == 0.0 and s2 == 0.0:
+            exceptions.append("ZERO_REPORTED_EMISSIONS_ALERT")
+        if parsed_data.get("greenwash_analysis", {}).get("risk_level") == "HIGH_GREENWASHING_RISK":
+            exceptions.append("HIGH_GREENWASHING_RISK_DETECTED")
+
+        dqs = self.assess_data_quality(parsed_data)
+        risk_state = "ALPHA" if len(exceptions) == 0 and dqs["score"] > 0.8 else "OMEGA"
+
+        return {
+            "entity_name": parsed_data.get("entity_name"),
+            "reporting_period": parsed_data.get("reporting_period"),
+            "data_lineage_sha256": file_hash,
+            "recalculated_ghg_intensity": round(calc_intensity, 4),
+            "governance_hhi": round(hhi_index, 4),
+            "data_quality": dqs,
+            "greenwash_analysis": parsed_data.get("greenwash_analysis", {}),
+            "community_impact": parsed_data.get("community_impact", {}),
+            "exceptions_detected": exceptions,
+            "assurance_risk_state": risk_state
+        }
+
+
+# =====================================================================
+# 4. REPORTLAB PDF REPORT GENERATOR
+# =====================================================================
+
+def generate_pdf_report(results: Dict[str, Any]) -> bytes:
+    """Generates an IFRS Forensic Assurance Report as a PDF byte stream."""
+    if not REPORTLAB_AVAILABLE:
+        return b"%PDF-1.4 empty placeholder - reportlab not installed"
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
+    story = []
+    styles = getSampleStyleSheet()
+
+    title_style = ParagraphStyle(
+        'ReportTitle', parent=styles['Heading1'], fontSize=16, textColor=colors.HexColor('#1E3A8A'), spaceAfter=10
+    )
+    story.append(Paragraph("IFRS / NSE ESG Assurance & Greenwashing Report", title_style))
+    story.append(Paragraph("<b>Standard Alignment:</b> IFRS S1, IFRS S2, NSE ESG, ISO 14064", styles['Normal']))
+    story.append(Spacer(1, 10))
+
+    data = [
+        ["Verification Indicator", "Forensic Assessment"],
+        ["Entity Name", str(results.get("entity_name", "Unknown"))],
+        ["Assurance Risk State", str(results.get("assurance_risk_state", "N/A"))],
+        ["Greenwashing Risk Level", str(results.get("greenwash_analysis", {}).get("risk_level", "VERIFIED"))],
+        ["Recalculated GHG Intensity", f"{results.get('recalculated_ghg_intensity', 0):.4f}"],
+        ["Governance HHI", f"{results.get('governance_hhi', 0):.4f}"],
+        ["Data Quality Score (DQS)", f"{results.get('data_quality', {}).get('score', 0)} ({results.get('data_quality', {}).get('tier', 'N/A')})"],
+        ["Community Benefit Score", f"{results.get('community_impact', {}).get('score', 0):.2f}"],
+        ["Local Initiatives Identified", ", ".join(results.get("community_impact", {}).get("verified_initiatives", [])) or "None"],
+        ["Exceptions Detected", ", ".join(results.get("exceptions_detected", [])) or "None"],
+        ["SHA-256 Lineage Hash", str(results.get("data_lineage_sha256", "N/A"))[:32] + "..."]
+    ]
+
+    t = Table(data, colWidths=[200, 340])
+    t.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1E3A8A')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CBD5E1')),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+    ]))
+    story.append(t)
+    story.append(Spacer(1, 15))
+    story.append(Paragraph("<b>Notice:</b> Automated forensic assurance report evaluating corporate disclosure data, regional impact, and greenwashing risks.", styles['Italic']))
+
+    doc.build(story)
+    buffer.seek(0)
+    return buffer.getvalue()

@@ -15,8 +15,9 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 
+
 # =====================================================================
-# 1. MULTI-FORMAT EVIDENCE PARSER (HTML, PDF, DOCX)
+# 1. MULTI-FORMAT DOCUMENT EXTRACTOR (HTML, PDF, DOCX)
 # =====================================================================
 
 class DisclosureHTMLParser(HTMLParser):
@@ -74,48 +75,74 @@ class DocumentExtractor:
             return raw_bytes.decode("utf-8", errors="ignore")
 
 
-class DisclosureParser:
-    """Parses extracted text to pull IFRS S1 and S2 metrics using Regex."""
+# =====================================================================
+# 2. ENHANCED DISCLOSURE PARSER (IFRS, NSE, GREENWASHING, COMMUNITY)
+# =====================================================================
+
+class EnhancedDisclosureParser:
+    """Parses text for standard IFRS metrics, Greenwashing risk flags, and regional community investments."""
     
+    GREENWASH_KEYWORDS = [
+        "net zero", "carbon neutral", "eco friendly", "sustainable future",
+        "green initiative", "climate champion", "environmentally conscious"
+    ]
+
+    COMMUNITY_BENEFIT_KEYWORDS = [
+        "water source", "water point", "ict training", "hospital upgrade",
+        "skills development", "regional infrastructure", "local community"
+    ]
+
     def parse_text(self, text: str) -> Dict[str, Any]:
-        extracted_data = {
+        data = {
             "entity_name": "Unknown Entity",
             "reporting_period": "2025/2026",
             "metrics": {},
-            "governance": {}
+            "governance": {},
+            "greenwash_analysis": {},
+            "community_impact": {}
         }
 
-        # Entity Name
-        entity_match = re.search(r"Company Name:\s*([A-Za-z0-9\s&]+)", text, re.I)
+        # 1. Standard Metrics Extraction
+        entity_match = re.search(r"(?:Company Name|Entity):\s*([A-Za-z0-9\s&]+)", text, re.I)
         if entity_match:
-            extracted_data["entity_name"] = entity_match.group(1).strip()
+            data["entity_name"] = entity_match.group(1).strip()
 
-        # IFRS S2 Climate Variables
         s1_match = re.search(r"Scope\s*1\s*(?:Emissions)?:\s*([\d,]+(?:\.\d+)?)", text, re.I)
         s2_match = re.search(r"Scope\s*2\s*(?:Emissions)?:\s*([\d,]+(?:\.\d+)?)", text, re.I)
         output_match = re.search(r"Total\s*Output:\s*([\d,]+(?:\.\d+)?)", text, re.I)
 
-        if s1_match:
-            extracted_data["metrics"]["scope_1"] = float(s1_match.group(1).replace(",", ""))
-        if s2_match:
-            extracted_data["metrics"]["scope_2"] = float(s2_match.group(1).replace(",", ""))
-        if output_match:
-            extracted_data["metrics"]["total_output"] = float(output_match.group(1).replace(",", ""))
+        if s1_match: data["metrics"]["scope_1"] = float(s1_match.group(1).replace(",", ""))
+        if s2_match: data["metrics"]["scope_2"] = float(s2_match.group(1).replace(",", ""))
+        if output_match: data["metrics"]["total_output"] = float(output_match.group(1).replace(",", ""))
 
-        # IFRS S1 Governance Variables
+        # Governance Variables (NSE / IFRS S1 Alignment)
         male_match = re.search(r"Male\s*Board\s*Members:\s*(\d+)", text, re.I)
         female_match = re.search(r"Female\s*Board\s*Members:\s*(\d+)", text, re.I)
 
-        if male_match:
-            extracted_data["governance"]["male_count"] = int(male_match.group(1))
-        if female_match:
-            extracted_data["governance"]["female_count"] = int(female_match.group(1))
+        if male_match: data["governance"]["male_count"] = int(male_match.group(1))
+        if female_match: data["governance"]["female_count"] = int(female_match.group(1))
 
-        return extracted_data
+        # 2. Greenwash Narrative Detection
+        text_lower = text.lower()
+        buzzword_count = sum(text_lower.count(kw) for kw in self.GREENWASH_KEYWORDS)
+        data["greenwash_analysis"]["narrative_buzzword_count"] = buzzword_count
+        
+        has_metrics = "scope_1" in data["metrics"] and "scope_2" in data["metrics"]
+        if buzzword_count > 5 and not has_metrics:
+            data["greenwash_analysis"]["risk_level"] = "HIGH_GREENWASHING_RISK"
+        else:
+            data["greenwash_analysis"]["risk_level"] = "LOW_OR_VERIFIED"
+
+        # 3. Localized Regional Community Impact Tracking
+        community_hits = [kw for kw in self.COMMUNITY_BENEFIT_KEYWORDS if kw in text_lower]
+        data["community_impact"]["verified_initiatives"] = community_hits
+        data["community_impact"]["score"] = len(community_hits) * 0.25
+
+        return data
 
 
 # =====================================================================
-# 2. FORENSIC VERIFICATION ENGINE
+# 3. FORENSIC VERIFICATION ENGINE
 # =====================================================================
 
 class IFRSForensicEngine:
@@ -141,23 +168,15 @@ class IFRSForensicEngine:
         has_output = "total_output" in metrics
 
         score = 0.0
-        if has_s1 and has_s2: 
-            score += 0.4
-        if has_output: 
-            score += 0.3
-        if len(data.get("governance", {})) > 0: 
-            score += 0.3
+        if has_s1 and has_s2: score += 0.4
+        if has_output: score += 0.3
+        if len(data.get("governance", {})) > 0: score += 0.3
 
-        if score >= 0.9: 
-            classification = "ASSURANCE_READY"
-        elif score >= 0.7: 
-            classification = "VERIFIED"
-        elif score >= 0.5: 
-            classification = "CONTROLLED"
-        elif score >= 0.3: 
-            classification = "DEVELOPING"
-        else: 
-            classification = "MINIMAL"
+        if score >= 0.9: classification = "ASSURANCE_READY"
+        elif score >= 0.7: classification = "VERIFIED"
+        elif score >= 0.5: classification = "CONTROLLED"
+        elif score >= 0.3: classification = "DEVELOPING"
+        else: classification = "MINIMAL"
 
         return {"score": round(score, 2), "tier": classification}
 
@@ -182,6 +201,8 @@ class IFRSForensicEngine:
             exceptions.append("INVALID_OUTPUT_DENOMINATOR")
         if s1 == 0.0 and s2 == 0.0:
             exceptions.append("ZERO_REPORTED_EMISSIONS_ALERT")
+        if parsed_data.get("greenwash_analysis", {}).get("risk_level") == "HIGH_GREENWASHING_RISK":
+            exceptions.append("HIGH_GREENWASHING_RISK_DETECTED")
 
         dqs = self.assess_data_quality(parsed_data)
         risk_state = "ALPHA" if len(exceptions) == 0 and dqs["score"] > 0.8 else "OMEGA"
@@ -193,60 +214,54 @@ class IFRSForensicEngine:
             "recalculated_ghg_intensity": round(calc_intensity, 4),
             "governance_hhi": round(hhi_index, 4),
             "data_quality": dqs,
+            "greenwash_analysis": parsed_data.get("greenwash_analysis", {}),
+            "community_impact": parsed_data.get("community_impact", {}),
             "exceptions_detected": exceptions,
             "assurance_risk_state": risk_state
         }
 
 
 # =====================================================================
-# 3. REPORTLAB PDF REPORT GENERATOR
+# 4. REPORTLAB PDF REPORT GENERATOR
 # =====================================================================
 
 def generate_pdf_report(results: Dict[str, Any]) -> bytes:
-    """Generates an IFRS Forensic Assurance Report as a PDF byte stream."""
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
     story = []
     styles = getSampleStyleSheet()
 
     title_style = ParagraphStyle(
-        'ReportTitle',
-        parent=styles['Heading1'],
-        fontSize=18,
-        leading=22,
-        textColor=colors.HexColor('#1E3A8A'),
-        spaceAfter=12
+        'ReportTitle', parent=styles['Heading1'], fontSize=16, textColor=colors.HexColor('#1E3A8A'), spaceAfter=10
     )
-    story.append(Paragraph("IFRS Forensic Assurance Verification Report", title_style))
-    story.append(Paragraph("<b>Standard Alignment:</b> IFRS S1 (Governance) & IFRS S2 (Climate)", styles['Normal']))
-    story.append(Spacer(1, 12))
+    story.append(Paragraph("IFRS / NSE ESG Assurance & Greenwashing Report", title_style))
+    story.append(Paragraph("<b>Standard Alignment:</b> IFRS S1, IFRS S2, NSE ESG, ISO 14064", styles['Normal']))
+    story.append(Spacer(1, 10))
 
     data = [
-        ["Metric / Indicator", "Forensic Result"],
+        ["Verification Indicator", "Forensic Assessment"],
         ["Entity Name", str(results.get("entity_name", "Unknown"))],
-        ["Reporting Period", str(results.get("reporting_period", "N/A"))],
         ["Assurance Risk State", str(results.get("assurance_risk_state", "N/A"))],
+        ["Greenwashing Risk Level", str(results.get("greenwash_analysis", {}).get("risk_level", "VERIFIED"))],
         ["Recalculated GHG Intensity", f"{results.get('recalculated_ghg_intensity', 0):.4f}"],
         ["Governance HHI", f"{results.get('governance_hhi', 0):.4f}"],
         ["Data Quality Score (DQS)", f"{results.get('data_quality', {}).get('score', 0)} ({results.get('data_quality', {}).get('tier', 'N/A')})"],
+        ["Community Benefit Score", f"{results.get('community_impact', {}).get('score', 0):.2f}"],
+        ["Local Initiatives Identified", ", ".join(results.get("community_impact", {}).get("verified_initiatives", [])) or "None"],
         ["Exceptions Detected", ", ".join(results.get("exceptions_detected", [])) or "None"],
-        ["SHA-256 Evidence Hash", str(results.get("data_lineage_sha256", "N/A"))[:32] + "..."]
+        ["SHA-256 Lineage Hash", str(results.get("data_lineage_sha256", "N/A"))[:32] + "..."]
     ]
 
     t = Table(data, colWidths=[200, 340])
     t.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1E3A8A')),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, -1), 10),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
         ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CBD5E1')),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
     ]))
     story.append(t)
-    story.append(Spacer(1, 20))
-
-    story.append(Paragraph("<b>Notice:</b> This document is an automated research prototype report generated for transaction-level disclosure verification.", styles['Italic']))
+    story.append(Spacer(1, 15))
+    story.append(Paragraph("<b>Notice:</b> Automated forensic assurance report evaluating corporate disclosure data, regional impact, and greenwashing risks.", styles['Italic']))
 
     doc.build(story)
     buffer.seek(0)

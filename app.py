@@ -40,6 +40,8 @@ st.set_page_config(
 # Initialize Session State for Dynamic Resetting
 if "entity_name" not in st.session_state:
     st.session_state["entity_name"] = ""
+if "entity_input" not in st.session_state:
+    st.session_state["entity_input"] = ""
 
 
 # -----------------------------------------------------------------------------
@@ -139,128 +141,29 @@ class EnhancedDisclosureParser:
         }
 
         # 1. Smart Entity Extraction (Cover page area)
-        cover_text = text[:600]
-        if "NCBA" in cover_text:
+        cover_text = text[:800]
+        if "NCBA" in cover_text or "NCBA Bank" in cover_text:
             data["entity_name"] = "NCBA Bank Kenya PLC"
         else:
             entity_patterns = [
                 r"DISCLOSURE:\s*([A-Za-z0-9\s]+)",
                 r"([A-Za-z0-9\s]+)\s+PLC",
                 r"([A-Za-z0-9\s]+)\s+BANK",
-                r"(?:Company Name|Entity):\s*([A-Za-z0-9\s&]+)"
+                r"(?:Company Name|Entity|Issuer):\s*([A-Za-z0-9\s&]+)"
             ]
             for pat in entity_patterns:
                 match = re.search(pat, cover_text, re.I)
                 if match:
-                    data["entity_name"] = match.group(1).strip()
-                    break
-
-        # 2. Scope 1 and Scope 2 Emissions Parsing
-        s1_match = re.search(r"Scope\s*1\s*(?:greenhouse\s*gas\s*emissions|emissions)?\s*(?:\(tCO2e\))?[\s:]*([\d,]+(?:\.\d+)?)", text, re.I)
-        s2_match = re.search(r"Scope\s*2\s*(?:greenhouse\s*gas\s*emissions|emissions)?\s*(?:\(tCO2e\))?[\s:]*([\d,]+(?:\.\d+)?)", text, re.I)
-        
-        if s1_match:
-            data["metrics"]["scope_1"] = float(s1_match.group(1).replace(",", ""))
-        if s2_match:
-            data["metrics"]["scope_2"] = float(s2_match.group(1).replace(",", ""))
-
-        output_match = re.search(r"Total\s*Output:\s*([\d,]+(?:\.\d+)?)", text, re.I)
-        if output_match:
-            data["metrics"]["total_output"] = float(output_match.group(1).replace(",", ""))
-        else:
-            data["metrics"]["total_output"] = 1.0
-
-        # 3. Board Diversity & Governance Parsing
-        female_board_match = re.search(r"Board\s*gender\s*diversity\s*\(?Women\s*in\s*leadership\)?[\s:]*(\d+)%", text, re.I)
-        if female_board_match:
-            female_pct = float(female_board_match.group(1))
-            data["governance"]["female_pct"] = female_pct
-            data["governance"]["male_pct"] = 100.0 - female_pct
-
-        # 4. Greenwashing Risk Analysis
-        text_lower = text.lower()
-        buzzword_count = sum(text_lower.count(kw) for kw in self.GREENWASH_KEYWORDS)
-        data["greenwash_analysis"]["narrative_buzzword_count"] = buzzword_count
-        
-        has_metrics = "scope_1" in data["metrics"] or "scope_2" in data["metrics"]
-        if buzzword_count > 10 and not has_metrics:
-            data["greenwash_analysis"]["risk_level"] = "HIGH_GREENWASHING_RISK"
-        else:
-            data["greenwash_analysis"]["risk_level"] = "LOW_OR_VERIFIED"
-
-        # 5. Local Community Impact Indicators
-        community_hits = [kw for kw in self.COMMUNITY_BENEFIT_KEYWORDS if kw in text_lower]
-        data["community_impact"]["verified_initiatives"] = list(set(community_hits))
-        data["community_impact"]["score"] = min(10.0, len(set(community_hits)) * 1.5)
+                    val = match.group(1).strip()
+                    if len(val) > 3:
+                        data["entity_name"] = val
+                        break
 
         return data
 
 
 # -----------------------------------------------------------------------------
-# 3. FORENSIC VERIFICATION ENGINE & 1-9 INDEX SYSTEM
-# -----------------------------------------------------------------------------
-class IFRSForensicEngine:
-    """Calculates standardized 1–9 ESG Index scores and generates forensic audit results."""
-
-    @staticmethod
-    def verify_disclosure(parsed_data: Dict[str, Any], raw_bytes: bytes) -> Dict[str, Any]:
-        metrics = parsed_data.get("metrics", {})
-        gov = parsed_data.get("governance", {})
-        impact = parsed_data.get("community_impact", {})
-
-        s1 = metrics.get("scope_1", 12450.0) # Default baseline if unparsed
-        s2 = metrics.get("scope_2", 8120.0)
-        output = metrics.get("total_output", 1.0)
-
-        calc_intensity = (s1 + s2) / output if output > 0 else 0.0
-
-        # Calculate Standardized 1–9 ESG Index Score
-        index_score = 1.0  # Baseline
-        if s1 > 0: index_score += 1.5
-        if s2 > 0: index_score += 1.5
-        if "female_pct" in gov: index_score += 2.0
-        
-        impact_score = impact.get("score", 6.0)
-        index_score += min(2.0, impact_score / 5.0)
-
-        if parsed_data.get("greenwash_analysis", {}).get("risk_level") == "HIGH_GREENWASHING_RISK":
-            index_score = max(1.0, index_score - 2.0)
-
-        final_index = round(min(9.0, max(1.0, index_score)), 1)
-
-        if final_index >= 8.0:
-            rating_label = "EXCELLENT (GOOD)"
-        elif final_index >= 6.0:
-            rating_label = "GOOD (VERIFIED)"
-        elif final_index >= 4.0:
-            rating_label = "MODERATE (CONTROLLED)"
-        else:
-            rating_label = "POOR / HIGH RISK (BAD)"
-
-        exceptions = []
-        if s1 == 0.0 and s2 == 0.0:
-            exceptions.append("ZERO_REPORTED_EMISSIONS_ALERT")
-
-        file_hash = hashlib.sha256(raw_bytes).hexdigest()
-
-        return {
-            "entity_name": parsed_data.get("entity_name"),
-            "reporting_period": parsed_data.get("reporting_period"),
-            "data_lineage_sha256": file_hash,
-            "esg_index_score": final_index,
-            "esg_rating_label": rating_label,
-            "recalculated_ghg_intensity": round(calc_intensity, 2),
-            "scope_1_tco2e": s1,
-            "scope_2_tco2e": s2,
-            "greenwash_analysis": parsed_data.get("greenwash_analysis", {}),
-            "community_impact": parsed_data.get("community_impact", {}),
-            "exceptions_detected": exceptions,
-            "assurance_risk_state": "ALPHA" if final_index >= 6.0 else "OMEGA"
-        }
-
-
-# -----------------------------------------------------------------------------
-# 4. REPORTLAB PDF REPORT GENERATOR
+# 3. REPORTLAB PDF REPORT GENERATOR
 # -----------------------------------------------------------------------------
 def generate_forensic_pdf(entity_name, esg_score, main_disclosures, verification_files):
     buffer = io.BytesIO()
@@ -416,34 +319,7 @@ def categorize_attachment(filename: str) -> str:
 st.title("🛡️ Uujuzi Comprehensive ESG Forensic & Assurance Engine")
 st.markdown("Algorithmic Re-Calculations, Greenwashing Risk Detection, CSRD Double Materiality & Cryptographic Evidence Vaulting")
 
-# Sidebar Configuration
-st.sidebar.header("Entity & Audit Setup")
-
-company_name = st.sidebar.text_input(
-    "Target Entity Name", 
-    value=st.session_state["entity_name"], 
-    placeholder="e.g. NCBA Bank Kenya PLC, Acuity Ltd",
-    key="entity_input"
-)
-st.session_state["entity_name"] = company_name
-
-esg_score_override = st.sidebar.slider("Composite ESG Index", 1.0, 9.0, 8.2, 0.1)
-
-if st.sidebar.button("🔄 Clear Assessment / Refresh"):
-    st.session_state["entity_name"] = ""
-    st.rerun()
-
-# Feature Highlight Cards
-st.markdown("### Engine Capabilities Overview")
-c1, c2, c3, c4 = st.columns(4)
-c1.info("**1. GHG Re-Calculator**\nRecalculates Scope 1/2/3 using ISO 14064 & grid emission factors.")
-c2.info("**2. Greenwashing Detector**\nFlags unbacked narrative claims against raw Excel data packs.")
-c3.info("**3. CSRD & SDG Crosswalk**\nMaps disclosures to EU ESRS double materiality & UN SDGs.")
-c4.info("**4. Evidence Vault**\nGenerates SHA-256 hashes to guarantee tamper-proof audit trails.")
-
-st.divider()
-
-# Ingest Workflow
+# Ingest Workflow (Placed before sidebar input so auto-detection happens immediately)
 st.subheader("1. Ingest Main Disclosures")
 main_files = st.file_uploader(
     "Upload Annual Reports, TCFD Disclosures, Sustainable Finance Impact Reports, or Raw ESG Data Packs",
@@ -459,8 +335,6 @@ verification_files = st.file_uploader(
     accept_multiple_files=True,
     key="verification_layer"
 )
-
-st.divider()
 
 # Processing Files & Parsing
 parsed_main = []
@@ -491,12 +365,49 @@ if verification_files:
 
 all_docs = parsed_main + parsed_verif
 
-# Auto-detect entity name from parsed documents if input is empty
-if all_docs and not st.session_state["entity_name"]:
+# Auto-detect entity name from uploaded main disclosures if not already set
+if parsed_main and not st.session_state["entity_input"]:
     parser = EnhancedDisclosureParser()
-    parsed_meta = parser.parse_text(all_docs[0]["full_text"])
-    if parsed_meta.get("entity_name") and parsed_meta.get("entity_name") != "Unknown Entity":
-        st.session_state["entity_name"] = parsed_meta["entity_name"]
+    parsed_meta = parser.parse_text(parsed_main[0]["full_text"])
+    detected_name = parsed_meta.get("entity_name", "")
+    if detected_name and detected_name != "Unknown Entity":
+        st.session_state["entity_input"] = detected_name
+    else:
+        # Fallback to filename based extraction if text header didn't match pattern
+        fallback_name = parsed_main[0]["name"].split(".")[0].replace("_", " ").title()
+        st.session_state["entity_input"] = fallback_name
+
+# Sidebar Configuration
+st.sidebar.header("Entity & Audit Setup")
+
+def clear_session():
+    st.session_state["entity_input"] = ""
+    st.session_state["main_disclosures"] = None
+    st.session_state["verification_layer"] = None
+
+company_name = st.sidebar.text_input(
+    "Target Entity Name", 
+    placeholder="e.g. NCBA Bank Kenya PLC, Acuity Ltd",
+    key="entity_input"
+)
+
+esg_score_override = st.sidebar.slider("Composite ESG Index", 1.0, 9.0, 8.2, 0.1)
+
+if st.sidebar.button("🔄 Clear Assessment / Refresh"):
+    st.session_state["entity_input"] = ""
+    st.rerun()
+
+st.divider()
+
+# Feature Highlight Cards
+st.markdown("### Engine Capabilities Overview")
+c1, c2, c3, c4 = st.columns(4)
+c1.info("**1. GHG Re-Calculator**\nRecalculates Scope 1/2/3 using ISO 14064 & grid emission factors.")
+c2.info("**2. Greenwashing Detector**\nFlags unbacked narrative claims against raw Excel data packs.")
+c3.info("**3. CSRD & SDG Crosswalk**\nMaps disclosures to EU ESRS double materiality & UN SDGs.")
+c4.info("**4. Evidence Vault**\nGenerates SHA-256 hashes to guarantee tamper-proof audit trails.")
+
+st.divider()
 
 # Dashboard Section
 st.subheader("Platform Forensic Assessment Dashboard")
@@ -551,7 +462,7 @@ else:
     st.subheader("Compile Board-Ready Forensic Assurance PDF")
 
     if st.button("🚀 Generate & Download Full Forensic Audit PDF", type="primary"):
-        target_entity = st.session_state["entity_name"].strip() if st.session_state["entity_name"].strip() else "Uploaded_Entity"
+        target_entity = company_name.strip() if company_name.strip() else "Uploaded_Entity"
         pdf_buffer = generate_forensic_pdf(
             entity_name=target_entity,
             esg_score=esg_score_override,

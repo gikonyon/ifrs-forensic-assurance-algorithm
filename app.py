@@ -5,13 +5,13 @@ import hashlib
 import json
 
 # ==========================================
-# 1. INLINE MODULES & COMPLIANCE LOGIC
+# 1. INLINE MODULES & ASSURANCE ENGINES
 # ==========================================
 
 def register_evidence_document(file_bytes, document_name, document_type, issuer_accreditation_id):
     """
     Mints an immutable SHA-256 cryptographic hash for uploaded regulatory documents
-    to ensure audit integrity for external assurance under IFRS S1/S2.
+    and certifications to ensure audit integrity under ISSA 5000 and IFRS S1/S2.
     """
     file_hash = hashlib.sha256(file_bytes).hexdigest()
     
@@ -52,7 +52,6 @@ class DOSHSIncidentTracker:
             "doshs_deadline": self.doshs_sla_deadline.strftime("%Y-%m-%d %H:%M:%S UTC"),
             "description": self.description
         }
-        # Cryptographic payload verification hash
         payload["hash"] = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()[:12]
         return payload
 
@@ -62,9 +61,7 @@ def validate_spatial_compliance(latitude, longitude, observation_date_str):
     Validates field observation coordinates against Kenyan territorial bounds
     and enforces a 30-day freshness SLA for EUDR/NEMA deforestation evidence.
     """
-    # Coordinate Bounds Check for Kenya (-4.7 to 5.5 Lat, 33.9 to 41.9 Lon)
     is_in_kenya = (-4.7 <= latitude <= 5.5) and (33.9 <= longitude <= 41.9)
-    
     obs_date = datetime.datetime.strptime(observation_date_str, "%Y-%m-%d").date()
     days_diff = (datetime.date.today() - obs_date).days
     
@@ -91,30 +88,33 @@ def validate_spatial_compliance(latitude, longitude, observation_date_str):
 
 def evaluate_esg_assurance_score(evidence_manifest):
     """
-    Calculates overall audit readiness based on vaulted evidence across 4 regulatory pillars.
+    Calculates overall audit readiness based on vaulted evidence and certifications across 6 pillars.
     """
     required_pillars = {
-        "EMCA_NEMA_Permit": 25,
-        "DOSHS_WIBA_Compliance": 25,
-        "Minimum_Wage_Payroll_Audit": 25,
-        "Board_E_and_S_Oversight": 25
+        "EMCA_NEMA_Permit": 20,
+        "DOSHS_WIBA_Compliance": 20,
+        "ISO_EHS_Certifications": 15,
+        "Minimum_Wage_Payroll_Audit": 15,
+        "Board_E_and_S_Oversight": 15,
+        "SDG_Target_Alignment": 15
     }
     
-    score = 0
-    for pillar, points in required_pillars.items():
-        if evidence_manifest.get(pillar, False):
-            score += points
+    score = sum([points for pillar, points in required_pillars.items() if evidence_manifest.get(pillar, False)])
 
-    if score >= 75:
-        status = "🟢 BANKABLE / AUDIT-READY — Evidence satisfies CBK, NEMA, and IFC standards."
+    if score >= 80:
+        status = "🟢 BANKABLE / AUDIT-READY — Evidence satisfies ISSA 5000, CBK, NEMA, and IFC standards."
+        rec = "Proceed to external assurance practitioner review. Prepare board presentation for investor due diligence."
     elif score >= 50:
-        status = "🟡 MODERATE ASSURANCE RISK — Additional evidence files required prior to external audit."
+        status = "🟡 MODERATE ASSURANCE RISK — Additional evidence files and certifications required."
+        rec = "Initiate Uujuzi 90-Day Remediation Roadmap. Address missing ISO/SDG proof prior to external audit."
     else:
-        status = "🔴 UNBANKABLE / HIGH ASSURANCE RISK — Critical compliance evidence missing."
+        status = "🔴 UNBANKABLE / HIGH ASSURANCE RISK — Critical compliance evidence and certifications missing."
+        rec = "Immediate management intervention required. Upload statutory permits (NEMA/DOSHS) and establish data ownership matrix."
 
     return {
         "score": score,
-        "status": status
+        "status": status,
+        "recommendation": rec
     }
 
 
@@ -122,9 +122,8 @@ def evaluate_esg_assurance_score(evidence_manifest):
 # 2. STREAMLIT UI & INTERFACE ENGINE
 # ==========================================
 
-# Page Configuration
 st.set_page_config(
-    page_title="Uujuzi ESG Assurance Engine",
+    page_title="Uujuzi ESG Evidence & Assurance Layer",
     page_icon="🛡️",
     layout="wide"
 )
@@ -144,42 +143,46 @@ target_sector = st.sidebar.selectbox(
 
 st.sidebar.markdown("---")
 st.sidebar.info("""
-**Regulatory Frameworks Applied:**
-- IFC & NEMA 2025 Real Sector Guidelines
-- EMCA Cap 387 / EIA Regulations
-- OSHA 2007 & WIBA 2007 (DOSHS)
-- IFRS S1 / S2 & CBK Green Taxonomy
+**Regulatory Frameworks & Certifications:**
+- ISSA 5000 Sustainability Assurance
+- ISO 14001 (Env) / ISO 45001 (OHS)
+- IFRS S1 / S2 & ICPAK Roadmap (2027)
+- NEMA EMCA Cap 387 / CBK Taxonomy
 """)
 
 st.title("UUJUZI ESG EVIDENCE & FORENSIC ASSURANCE LAYER")
-st.caption(f"Real-Economy Compliance Engine | Active Focus: {target_sector}")
+st.caption(f"Real-Economy Compliance & SDG Proof Engine | Active Sector: {target_sector}")
 
-tab_vault, tab_doshs, tab_spatial, tab_readiness = st.tabs([
-    "📂 Cryptographic Evidence Vault", 
-    "⚠️ DOSHS / WIBA Incident Tracker", 
-    "🌍 Spatial & EUDR Geotag Verifier", 
+tab_vault, tab_doshs, tab_spatial, tab_sdg, tab_readiness = st.tabs([
+    "📂 Cryptographic Vault & Certs", 
+    "⚠️ DOSHS / WIBA Tracker", 
+    "🌍 Spatial & EUDR Verifier", 
+    "🎯 SDG Contribution Mapper",
     "📊 IFRS S1/S2 Gap & Audit Engine"
 ])
 
 # ------------------------------------------
-# TAB 1: EVIDENCE VAULT
+# TAB 1: EVIDENCE VAULT & CERTIFICATIONS
 # ------------------------------------------
 with tab_vault:
-    st.header("Forensic Evidence Vault")
-    st.caption("Upload regulatory permits, EIA audits, labor registers, or OSH policies to mint an immutable SHA-256 hash.")
+    st.header("Forensic Evidence & Certification Vault")
+    st.caption("Upload regulatory permits, ISO certifications, and labor registers to mint an immutable SHA-256 hash.")
     
     col1, col2 = st.columns([1, 1])
     
     with col1:
-        doc_type = st.selectbox("Document Classification", [
+        doc_type = st.selectbox("Document / Certification Classification", [
             "NEMA_EIA_LICENCE",
             "NEMA_ANNUAL_ENVIRONMENTAL_AUDIT",
             "DOSHS_SAFETY_INSPECTION_CERTIFICATE",
+            "ISO_14001_ENVIRONMENTAL_CERTIFICATE",
+            "ISO_45001_HEALTH_SAFETY_CERTIFICATE",
             "WIBA_INSURANCE_POLICY",
             "MINIMUM_WAGE_PAYROLL_REGISTER",
-            "BOARD_MINUTES_ESG_OVERSIGHT"
+            "BOARD_MINUTES_ESG_OVERSIGHT",
+            "SDG_IMPACT_VERIFICATION_REPORT"
         ])
-        issuer_id = st.text_input("Issuer / Accreditation ID", placeholder="e.g., NEMA/LEAD/1042")
+        issuer_id = st.text_input("Issuer / Accreditation ID", placeholder="e.g., NEMA/LEAD/1042 or ISO/KE/8821")
         uploaded_file = st.file_uploader("Upload Source PDF/Image Evidence", type=["pdf", "png", "jpg"])
         
         if st.button("Register & Lock Evidence", type="primary"):
@@ -257,29 +260,68 @@ with tab_spatial:
         st.map(pd.DataFrame({'lat': [lat], 'lon': [lon]}), zoom=12)
 
 # ------------------------------------------
-# TAB 4: ASSURANCE READINESS ENGINE
+# TAB 4: SDG CONTRIBUTION MAPPER
+# ------------------------------------------
+with tab_sdg:
+    st.header("SDG Contribution & Impact Alignment")
+    st.caption("Maps corporate ESG activities to target-level Sustainable Development Goals (SDGs).")
+    
+    col1, col2 = st.columns([1, 1])
+    
+    with col1:
+        sdg_target = st.selectbox("Primary Target SDG", [
+            "SDG 8: Decent Work & Economic Growth",
+            "SDG 12: Responsible Consumption & Production",
+            "SDG 13: Climate Action",
+            "SDG 15: Life on Land (Deforestation Free)"
+        ])
+        claim_text = st.text_area("Specific SDG Claim Statement", placeholder="e.g., Achieved 100% traceable sourcing across supply chain.")
+        ev_link = st.selectbox("Linked Evidence File", [doc["document_type"] for doc in st.session_state.evidence_vault] if st.session_state.evidence_vault else ["No files in vault"])
+        
+        if st.button("Validate SDG Alignment"):
+            if st.session_state.evidence_vault and ev_link != "No files in vault":
+                st.success(f"Claim mapped to {sdg_target} with verified evidence backing!")
+            else:
+                st.warning("Claim registered as 'Unsupported' (Score 1) — Requires source evidence in Vault.")
+
+    with col2:
+        st.subheader("SDG Claim Validation Logic")
+        st.markdown("""
+        - **Score 5 (Assurance-Ready):** Documented source evidence + calculation logic + independent audit.
+        - **Score 3 (Internally Supported):** Internal records available; lacking third-party verification.
+        - **Score 1 (Unsupported):** High greenwashing risk. Narrative claim without vaulted proof.
+        """)
+
+# ------------------------------------------
+# TAB 5: ASSURANCE READINESS & RECOMMENDATIONS
 # ------------------------------------------
 with tab_readiness:
-    st.header("IFRS S1 / S2 & Real Sector Audit Readiness")
-    st.caption("Evaluates overall bankability based on evidence locked in the Cryptographic Vault.")
+    st.header("IFRS S1 / S2 Gap Analysis & Modernized Recommendations")
+    st.caption("Evaluates audit readiness across statutory permits, ISO certifications, and SDG alignments.")
     
     vaulted_types = [doc["document_type"] for doc in st.session_state.evidence_vault]
     
     manifest = {
         "EMCA_NEMA_Permit": ("NEMA_EIA_LICENCE" in vaulted_types or "NEMA_ANNUAL_ENVIRONMENTAL_AUDIT" in vaulted_types),
         "DOSHS_WIBA_Compliance": ("DOSHS_SAFETY_INSPECTION_CERTIFICATE" in vaulted_types or "WIBA_INSURANCE_POLICY" in vaulted_types),
+        "ISO_EHS_Certifications": ("ISO_14001_ENVIRONMENTAL_CERTIFICATE" in vaulted_types or "ISO_45001_HEALTH_SAFETY_CERTIFICATE" in vaulted_types),
         "Minimum_Wage_Payroll_Audit": ("MINIMUM_WAGE_PAYROLL_REGISTER" in vaulted_types),
-        "Board_E_and_S_Oversight": ("BOARD_MINUTES_ESG_OVERSIGHT" in vaulted_types)
+        "Board_E_and_S_Oversight": ("BOARD_MINUTES_ESG_OVERSIGHT" in vaulted_types),
+        "SDG_Target_Alignment": ("SDG_IMPACT_VERIFICATION_REPORT" in vaulted_types)
     }
     
     evaluation = evaluate_esg_assurance_score(manifest)
     
-    st.metric("Overall Readiness Score", f"{evaluation['score']}%")
+    st.metric("Overall Assurance Readiness Score", f"{evaluation['score']}%")
     st.progress(evaluation['score'] / 100)
     
-    if evaluation['score'] >= 75:
+    st.markdown("### Executive Analysis & Verdict")
+    if evaluation['score'] >= 80:
         st.success(evaluation['status'])
     elif evaluation['score'] >= 50:
         st.warning(evaluation['status'])
     else:
         st.error(evaluation['status'])
+        
+    st.markdown("### Modernized Strategic Recommendation")
+    st.info(f"**Uujuzi Guidance:** {evaluation['recommendation']}")

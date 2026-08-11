@@ -27,7 +27,7 @@ except ImportError:
 
 
 # =====================================================================
-# 1. DOCUMENT EXTRACTOR & SMART COVER PAGE PARSER
+# 1. MULTI-FORMAT DOCUMENT EXTRACTOR & SMART COVER PAGE PARSER
 # =====================================================================
 
 class DisclosureHTMLParser(HTMLParser):
@@ -45,6 +45,8 @@ class DisclosureHTMLParser(HTMLParser):
 
 
 class DocumentExtractor:
+    """Extracts raw text content from HTML, PDF, and DOCX files."""
+    
     @staticmethod
     def extract_text_from_pdf(raw_bytes: bytes) -> str:
         if pypdf is None:
@@ -68,6 +70,10 @@ class DocumentExtractor:
                 return ""
             doc = docx.Document(io.BytesIO(raw_bytes))
             return "\n".join([p.text for p in doc.paragraphs if p.text.strip()])
+        elif ext in [".html", ".htm"]:
+            parser = DisclosureHTMLParser()
+            parser.feed(raw_bytes.decode("utf-8", errors="ignore"))
+            return parser.get_text()
         else:
             return raw_bytes.decode("utf-8", errors="ignore")
 
@@ -77,6 +83,8 @@ class DocumentExtractor:
 # =====================================================================
 
 class EnhancedDisclosureParser:
+    """Parses text for IFRS metrics, Scope 1/2 emissions, greenwashing risk, and community impact."""
+    
     GREENWASH_KEYWORDS = [
         "net zero", "carbon neutral", "eco friendly", "sustainable future",
         "green initiative", "climate champion", "environmentally conscious"
@@ -99,18 +107,16 @@ class EnhancedDisclosureParser:
         }
 
         # 1. Smart Entity Extraction (First Page / Title Fallback)
-        entity_patterns = [
-            r"DISCLOSURE:\s*([A-Za-z0-9\s]+)",
-            r"([A-Za-z0-9\s]+)\s+PLC",
-            r"([A-Za-z0-9\s]+)\s+BANK",
-            r"(?:Company Name|Entity):\s*([A-Za-z0-9\s&]+)"
-        ]
-        
-        # Check first 500 characters (Cover page area)
-        cover_text = text[:500]
+        cover_text = text[:600]
         if "NCBA" in cover_text:
             data["entity_name"] = "NCBA Bank Kenya PLC"
         else:
+            entity_patterns = [
+                r"DISCLOSURE:\s*([A-Za-z0-9\s]+)",
+                r"([A-Za-z0-9\s]+)\s+PLC",
+                r"([A-Za-z0-9\s]+)\s+BANK",
+                r"(?:Company Name|Entity):\s*([A-Za-z0-9\s&]+)"
+            ]
             for pat in entity_patterns:
                 match = re.search(pat, cover_text, re.I)
                 if match:
@@ -126,12 +132,11 @@ class EnhancedDisclosureParser:
         if s2_match:
             data["metrics"]["scope_2"] = float(s2_match.group(1).replace(",", ""))
 
-        # Default output metric for normalization if missing in financial disclosures
         output_match = re.search(r"Total\s*Output:\s*([\d,]+(?:\.\d+)?)", text, re.I)
         if output_match:
             data["metrics"]["total_output"] = float(output_match.group(1).replace(",", ""))
         else:
-            data["metrics"]["total_output"] = 1.0  # Normalizer baseline
+            data["metrics"]["total_output"] = 1.0
 
         # 3. Governance Parsing
         female_board_match = re.search(r"Board\s*gender\s*diversity\s*\(?Women\s*in\s*leadership\)?[\s:]*(\d+)%", text, re.I)
@@ -151,7 +156,7 @@ class EnhancedDisclosureParser:
         else:
             data["greenwash_analysis"]["risk_level"] = "LOW_OR_VERIFIED"
 
-        # 5. Localized Regional Community Impact Tracking
+        # 5. Local Community Impact Tracking
         community_hits = [kw for kw in self.COMMUNITY_BENEFIT_KEYWORDS if kw in text_lower]
         data["community_impact"]["verified_initiatives"] = list(set(community_hits))
         data["community_impact"]["score"] = min(10.0, len(set(community_hits)) * 1.5)
@@ -175,27 +180,21 @@ class IFRSForensicEngine:
 
         calc_intensity = (s1 + s2) / output if output > 0 else 0.0
 
-        # Calculate 1–9 ESG Index Score
-        index_score = 1.0  # Baseline
+        # Calculate Standardized 1–9 ESG Index Score
+        index_score = 1.0  # Base score
         
-        # Data Completeness (+3.0)
         if s1 > 0: index_score += 1.5
         if s2 > 0: index_score += 1.5
-        
-        # Governance (+2.0)
         if "female_pct" in gov: index_score += 2.0
         
-        # Local Impact (+2.0)
         impact_score = impact.get("score", 0.0)
         index_score += min(2.0, impact_score / 5.0)
 
-        # Penalty for Greenwashing Risk (-2.0)
         if parsed_data.get("greenwash_analysis", {}).get("risk_level") == "HIGH_GREENWASHING_RISK":
             index_score = max(1.0, index_score - 2.0)
 
         final_index = round(min(9.0, max(1.0, index_score)), 1)
 
-        # Categorize Performance
         if final_index >= 8.0:
             rating_label = "EXCELLENT (GOOD)"
         elif final_index >= 6.0:
@@ -217,7 +216,7 @@ class IFRSForensicEngine:
             "data_lineage_sha256": file_hash,
             "esg_index_score": final_index,
             "esg_rating_label": rating_label,
-            "recalculated_ghg_intensity": round(calc_intensity, 4),
+            "recalculated_ghg_intensity": round(calc_intensity, 2),
             "scope_1_tco2e": s1,
             "scope_2_tco2e": s2,
             "greenwash_analysis": parsed_data.get("greenwash_analysis", {}),
@@ -228,7 +227,7 @@ class IFRSForensicEngine:
 
 
 # =====================================================================
-# 4. REPORTLAB PDF REPORT GENERATOR
+# 4. REPORTLAB PDF REPORT GENERATOR (CLEAN FOOTER HASH)
 # =====================================================================
 
 def generate_pdf_report(results: Dict[str, Any]) -> bytes:
@@ -245,7 +244,7 @@ def generate_pdf_report(results: Dict[str, Any]) -> bytes:
     )
     story.append(Paragraph("IFRS / NSE ESG Forensic Assurance Audit", title_style))
     story.append(Paragraph("<b>Standard Alignment:</b> IFRS S1, IFRS S2, NSE ESG, ISO 14064", styles['Normal']))
-    story.append(Spacer(1, 10))
+    story.append(Spacer(1, 12))
 
     data = [
         ["Audit Parameter", "Forensic Result"],
@@ -256,7 +255,6 @@ def generate_pdf_report(results: Dict[str, Any]) -> bytes:
         ["Scope 2 Emissions", f"{results.get('scope_2_tco2e', 0):,.2f} tCO2e"],
         ["Greenwashing Risk", str(results.get("greenwash_analysis", {}).get("risk_level", "VERIFIED"))],
         ["Community Impact Initiatives", ", ".join(results.get("community_impact", {}).get("verified_initiatives", [])) or "None"],
-        ["SHA-256 Lineage Hash", str(results.get("data_lineage_sha256", "N/A"))[:32] + "..."]
     ]
 
     t = Table(data, colWidths=[200, 340])
@@ -267,6 +265,12 @@ def generate_pdf_report(results: Dict[str, Any]) -> bytes:
         ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
     ]))
     story.append(t)
+    story.append(Spacer(1, 20))
+
+    # SHA-256 Hash relocated to Document Footer
+    footer_style = ParagraphStyle('FooterStyle', parent=styles['Italic'], fontSize=8, textColor=colors.HexColor('#64748B'))
+    story.append(Paragraph(f"<b>Document Verification Fingerprint (SHA-256):</b> {results.get('data_lineage_sha256', 'N/A')}", footer_style))
+    story.append(Paragraph("Automated forensic assurance report evaluating corporate disclosure data, regional impact, and greenwashing risks.", footer_style))
 
     doc.build(story)
     buffer.seek(0)

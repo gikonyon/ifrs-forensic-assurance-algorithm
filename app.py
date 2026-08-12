@@ -116,7 +116,6 @@ st.markdown("---")
 col1, col2 = st.columns([1, 1])
 with col1:
     st.markdown("**1. Primary Disclosure Ingestion**")
-    # Using session state key so we can explicitly pop/clear it
     uploaded_file = st.file_uploader("Upload Primary Disclosure Report", type=["pdf", "txt", "docx"], key="primary_upload")
 
 with col2:
@@ -124,12 +123,10 @@ with col2:
     st.file_uploader("Upload statutory proof (200MB per file - PDF, PNG, JPG, TXT)", key="sec_upload")
 
 if uploaded_file is not None:
-    # Clear button explicitly pops the uploader keys out of session state and forces a rerun
+    # Clear button placed neatly above the results
     if st.button("🔄 Clear Analysis & Upload New Document", type="secondary"):
-        if "primary_upload" in st.session_state:
-            del st.session_state["primary_upload"]
-        if "sec_upload" in st.session_state:
-            del st.session_state["sec_upload"]
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
         st.rerun()
 
     meta = extract_entity_and_confirm_esg(uploaded_file)

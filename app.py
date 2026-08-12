@@ -61,10 +61,9 @@ def generate_assurance_report_pdf(entity_name, file_name):
     Generates a simple, valid PDF report in-memory using PyMuPDF (fitz) 
     so the download button provides a real, downloadable file.
     """
-    doc = fitz.open() # Create a new empty PDF
-    page = doc.new_page() # Add a page
+    doc = fitz.open() 
+    page = doc.new_page() 
     
-    # Write text onto the PDF page
     rect = fitz.Rect(50, 50, 550, 750)
     text = f"""UUJUZI COMPREHENSIVE ESG & FORENSIC ASSURANCE REPORT
 --------------------------------------------------------------------
@@ -117,6 +116,7 @@ st.markdown("---")
 col1, col2 = st.columns([1, 1])
 with col1:
     st.markdown("**1. Primary Disclosure Ingestion**")
+    # Using session state key so we can explicitly pop/clear it
     uploaded_file = st.file_uploader("Upload Primary Disclosure Report", type=["pdf", "txt", "docx"], key="primary_upload")
 
 with col2:
@@ -124,10 +124,12 @@ with col2:
     st.file_uploader("Upload statutory proof (200MB per file - PDF, PNG, JPG, TXT)", key="sec_upload")
 
 if uploaded_file is not None:
-    # Add a clear / reset button right above the results when an analysis is active
+    # Clear button explicitly pops the uploader keys out of session state and forces a rerun
     if st.button("🔄 Clear Analysis & Upload New Document", type="secondary"):
-        for key in list(st.session_state.keys()):
-            del st.session_state[key]
+        if "primary_upload" in st.session_state:
+            del st.session_state["primary_upload"]
+        if "sec_upload" in st.session_state:
+            del st.session_state["sec_upload"]
         st.rerun()
 
     meta = extract_entity_and_confirm_esg(uploaded_file)
@@ -135,7 +137,6 @@ if uploaded_file is not None:
     is_confirmed = meta["esg_confirmed"]
     file_name = meta["source_document"]
 
-    # Target Entity Name displayed cleanly in the sidebar
     target_entity = st.sidebar.text_input(
         "Target Entity Name", 
         value=default_entity
@@ -199,7 +200,6 @@ if uploaded_file is not None:
 
     st.table(metrics_data)
 
-    # Generate the actual PDF bytes dynamically on click
     report_pdf_bytes = generate_assurance_report_pdf(target_entity, file_name)
 
     st.download_button(
@@ -211,5 +211,4 @@ if uploaded_file is not None:
     )
 
 else:
-    # Landing state before document upload
     st.info("👆 Please upload your primary disclosure report PDF under '1. Primary Disclosure Ingestion' above to begin analysis and verification.")

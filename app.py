@@ -27,7 +27,6 @@ def extract_entity_and_confirm_esg(pdf_file_obj):
     is_esg_report = False
     esg_keywords = ["sustainable development", "impact disclosure", "sustainability", "esg", "integrated report"]
 
-    # Check Page 1 (Cover) and Page 3 (index 2)
     pages_to_scan = [0, 2] if len(doc) >= 3 else range(len(doc))
     
     extracted_text = ""
@@ -116,17 +115,27 @@ st.markdown("---")
 col1, col2 = st.columns([1, 1])
 with col1:
     st.markdown("**1. Primary Disclosure Ingestion**")
-    uploaded_file = st.file_uploader("Upload Primary Disclosure Report", type=["pdf", "txt", "docx"], key="primary_upload")
+    # Using a custom session state key pattern so we can forcefully clear the file uploader buffer via a state toggle
+    if "file_uploader_key" not in st.session_state:
+        st.session_state["file_uploader_key"] = 0
+
+    uploaded_file = st.file_uploader(
+        "Upload Primary Disclosure Report", 
+        type=["pdf", "txt", "docx"], 
+        key=f"primary_upload_{st.session_state['file_uploader_key']}"
+    )
 
 with col2:
     st.markdown("**2. Attached ISO Certificates & Statutory Evidence**")
-    st.file_uploader("Upload statutory proof (200MB per file - PDF, PNG, JPG, TXT)", key="sec_upload")
+    st.file_uploader(
+        "Upload statutory proof (200MB per file - PDF, PNG, JPG, TXT)", 
+        key=f"sec_upload_{st.session_state['file_uploader_key']}"
+    )
 
 if uploaded_file is not None:
-    # Clear button placed neatly above the results
+    # Clear button increments key index, completely resetting both upload widgets to clean initial state
     if st.button("🔄 Clear Analysis & Upload New Document", type="secondary"):
-        for key in list(st.session_state.keys()):
-            del st.session_state[key]
+        st.session_state["file_uploader_key"] += 1
         st.rerun()
 
     meta = extract_entity_and_confirm_esg(uploaded_file)

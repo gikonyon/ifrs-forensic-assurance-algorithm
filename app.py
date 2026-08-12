@@ -59,9 +59,6 @@ def extract_entity_and_confirm_esg(pdf_file_obj):
 # --- Sidebar Setup ---
 st.sidebar.markdown("## Entity & Multi-Standard Setup")
 
-# We handle the file upload right inside the main body now rather than the sidebar.
-# Let's check session state or define a placeholder for the uploader in the main body.
-
 st.sidebar.markdown(
     """
     <div style="background-color: #e6f0fa; padding: 10px; border-radius: 5px; color: #003366; font-size: 13px;">
@@ -83,7 +80,6 @@ st.markdown("---")
 col1, col2 = st.columns([1, 1])
 with col1:
     st.markdown("**1. Primary Disclosure Ingestion**")
-    # Primary Disclosure Ingestion file uploader is now located directly below section 1 heading
     uploaded_file = st.file_uploader("Upload Primary Disclosure Report", type=["pdf", "txt", "docx"], key="primary_upload")
 
 with col2:
@@ -91,12 +87,19 @@ with col2:
     st.file_uploader("Upload statutory proof (200MB per file - PDF, PNG, JPG, TXT)", key="sec_upload")
 
 if uploaded_file is not None:
+    # Add a clear / reset button right above the results when an analysis is active
+    if st.button("🔄 Clear Analysis & Upload New Document", type="secondary"):
+        # Clear the uploader values from session state to reset the view
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
+        st.rerun()
+
     meta = extract_entity_and_confirm_esg(uploaded_file)
     default_entity = meta["target_entity_name"]
     is_confirmed = meta["esg_confirmed"]
     file_name = meta["source_document"]
 
-    # Target Entity Name displayed cleanly in the sidebar now that document is uploaded
+    # Target Entity Name displayed cleanly in the sidebar
     target_entity = st.sidebar.text_input(
         "Target Entity Name", 
         value=default_entity

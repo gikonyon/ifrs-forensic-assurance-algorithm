@@ -59,9 +59,36 @@ def extract_entity_and_confirm_esg(pdf_file_obj):
 # --- Sidebar Setup ---
 st.sidebar.markdown("## Entity & Multi-Standard Setup")
 
-# Move file uploader here so it appears dynamically in the sidebar only when required, 
-# leaving the top-left sidebar strictly for the Target Entity Name once populated.
-uploaded_file = st.sidebar.file_uploader("Upload Primary Disclosure Report", type=["pdf", "txt", "docx"])
+# We handle the file upload right inside the main body now rather than the sidebar.
+# Let's check session state or define a placeholder for the uploader in the main body.
+
+st.sidebar.markdown(
+    """
+    <div style="background-color: #e6f0fa; padding: 10px; border-radius: 5px; color: #003366; font-size: 13px;">
+    This engine cross-references disclosures against global reporting baselines while verifying local statutory mandates in Kenya (CBK Climate Risk, NEMA audits, Data Protection Act, and NSE guidelines).
+    </div>
+    """, 
+    unsafe_allow_html=True
+)
+
+# --- Main Dashboard Layout ---
+st.markdown("### 🛡️ Uujuzi Comprehensive ESG & Forensic Assurance Engine")
+st.markdown(
+    "<small>Integrated Verification Engine aligning Global Standards (GRI, ISSB, TCFD, ISO), African Directives (ARSO, AfCFTA), and Kenyan National Frameworks (NSE, CBK, KEBS, NEMA, DPA, OSHA)</small>", 
+    unsafe_allow_html=True
+)
+
+st.markdown("---")
+
+col1, col2 = st.columns([1, 1])
+with col1:
+    st.markdown("**1. Primary Disclosure Ingestion**")
+    # Primary Disclosure Ingestion file uploader is now located directly below section 1 heading
+    uploaded_file = st.file_uploader("Upload Primary Disclosure Report", type=["pdf", "txt", "docx"], key="primary_upload")
+
+with col2:
+    st.markdown("**2. Attached ISO Certificates & Statutory Evidence**")
+    st.file_uploader("Upload statutory proof (200MB per file - PDF, PNG, JPG, TXT)", key="sec_upload")
 
 if uploaded_file is not None:
     meta = extract_entity_and_confirm_esg(uploaded_file)
@@ -69,38 +96,11 @@ if uploaded_file is not None:
     is_confirmed = meta["esg_confirmed"]
     file_name = meta["source_document"]
 
-    # Target Entity Name displayed cleanly in the sidebar
+    # Target Entity Name displayed cleanly in the sidebar now that document is uploaded
     target_entity = st.sidebar.text_input(
         "Target Entity Name", 
         value=default_entity
     )
-
-    st.sidebar.markdown(
-        """
-        <div style="background-color: #e6f0fa; padding: 10px; border-radius: 5px; color: #003366; font-size: 13px;">
-        This engine cross-references disclosures against global reporting baselines while verifying local statutory mandates in Kenya (CBK Climate Risk, NEMA audits, Data Protection Act, and NSE guidelines).
-        </div>
-        """, 
-        unsafe_allow_html=True
-    )
-
-    # --- Main Dashboard Layout ---
-    st.markdown("### 🛡️ Uujuzi Comprehensive ESG & Forensic Assurance Engine")
-    st.markdown(
-        "<small>Integrated Verification Engine aligning Global Standards (GRI, ISSB, TCFD, ISO), African Directives (ARSO, AfCFTA), and Kenyan National Frameworks (NSE, CBK, KEBS, NEMA, DPA, OSHA)</small>", 
-        unsafe_allow_html=True
-    )
-
-    st.markdown("---")
-
-    # Both Primary Ingestion and Statutory Evidence are now aligned side-by-side in the main body
-    col1, col2 = st.columns([1, 1])
-    with col1:
-        st.markdown("**1. Primary Disclosure Ingestion**")
-        st.info(f"📄 {file_name} (4.7MB)")
-    with col2:
-        st.markdown("**2. Attached ISO Certificates & Statutory Evidence**")
-        st.file_uploader("Upload statutory proof (200MB per file - PDF, PNG, JPG, TXT)", key="sec_upload")
 
     if is_confirmed:
         st.success(f"Successfully processed primary report: **{file_name}** | Detected Entity: **{target_entity}**")
@@ -164,5 +164,4 @@ if uploaded_file is not None:
 
 else:
     # Landing state before document upload
-    st.markdown("### 🛡️ Uujuzi Comprehensive ESG & Forensic Assurance Engine")
-    st.info("👈 Please upload your primary disclosure report PDF using the sidebar to begin analysis and verification.")
+    st.info("👆 Please upload your primary disclosure report PDF under '1. Primary Disclosure Ingestion' above to begin analysis and verification.")

@@ -1,4 +1,4 @@
-iimport streamlit as st
+import streamlit as st
 import fitz  # PyMuPDF
 import re
 
@@ -15,7 +15,6 @@ def extract_entity_and_confirm_esg(pdf_file_obj):
     Accepts a file-like object or path.
     """
     try:
-        # Read bytes from the Streamlit uploaded file object
         pdf_bytes = pdf_file_obj.read()
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     except Exception:
@@ -37,7 +36,6 @@ def extract_entity_and_confirm_esg(pdf_file_obj):
         text = doc[page_num].get_text("text")
         extracted_text += "\n" + text
 
-    # Identify entity name based on document patterns
     text_lower = extracted_text.lower()
     if "ncba" in text_lower:
         entity_name = "NCBA Bank Kenya PLC"
@@ -46,9 +44,8 @@ def extract_entity_and_confirm_esg(pdf_file_obj):
     elif "equity" in text_lower:
         entity_name = "Equity Group Holdings"
     else:
-        entity_name = "NCBA Bank Kenya PLC"  # Default fallback matching the uploaded report
+        entity_name = "NCBA Bank Kenya PLC"
 
-    # Confirm ESG / Sustainability context
     for keyword in esg_keywords:
         if keyword.lower() in text_lower:
             is_esg_report = True
@@ -165,5 +162,4 @@ metrics_data = [
 
 st.table(metrics_data)
 
-# Download Report Button
 st.button("📥 Download Full Validated Multi-Standard ESG Assurance Report PDF", type="primary")

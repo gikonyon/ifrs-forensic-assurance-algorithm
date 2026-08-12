@@ -59,16 +59,17 @@ def extract_entity_and_confirm_esg(pdf_file_obj):
 # --- Sidebar Setup ---
 st.sidebar.markdown("## Entity & Multi-Standard Setup")
 
-uploaded_file = st.sidebar.file_uploader("1. Primary Disclosure Ingestion (PDF, TXT, DOCX)", type=["pdf", "txt", "docx"])
+# Move file uploader here so it appears dynamically in the sidebar only when required, 
+# leaving the top-left sidebar strictly for the Target Entity Name once populated.
+uploaded_file = st.sidebar.file_uploader("Upload Primary Disclosure Report", type=["pdf", "txt", "docx"])
 
-# Conditionally handle logic ONLY when a document has been uploaded
 if uploaded_file is not None:
     meta = extract_entity_and_confirm_esg(uploaded_file)
     default_entity = meta["target_entity_name"]
     is_confirmed = meta["esg_confirmed"]
     file_name = meta["source_document"]
 
-    # Auto-populated Target Entity Name field (appears only after upload)
+    # Target Entity Name displayed cleanly in the sidebar
     target_entity = st.sidebar.text_input(
         "Target Entity Name", 
         value=default_entity
@@ -92,6 +93,7 @@ if uploaded_file is not None:
 
     st.markdown("---")
 
+    # Both Primary Ingestion and Statutory Evidence are now aligned side-by-side in the main body
     col1, col2 = st.columns([1, 1])
     with col1:
         st.markdown("**1. Primary Disclosure Ingestion**")

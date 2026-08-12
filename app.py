@@ -18,20 +18,78 @@ st.set_page_config(
 )
 
 # -----------------------------------------------------------------------------
+# ENTITY NAME EXTRACTION (COVER PAGE / FIRST PAGE DETECTION)
+# -----------------------------------------------------------------------------
+KNOWN_ENTITY_ALIASES = {
+    "NCBA": "NCBA Bank Kenya PLC",
+    "KCB": "KCB Group Plc",
+    "STANDARD CHARTERED": "Standard Chartered Bank Kenya Ltd",
+    "EQUITY": "Equity Group Holdings Plc",
+    "COOP BANK": "Co-operative Bank of Kenya Ltd",
+    "ABSA": "Absa Bank Kenya Plc",
+    "DTB": "Diamond Trust Bank Kenya Ltd",
+    "I&M": "I&M Bank Ltd",
+    "STANBIC": "Stanbic Bank Kenya Ltd",
+}
+
+def extract_entity_name_from_text(report_text: str) -> dict:
+    cover_text = report_text[:1500] if report_text else ""
+
+    for alias, full_name in KNOWN_ENTITY_ALIASES.items():
+        if alias.lower() in cover_text.lower():
+            return {
+                "detected_name": full_name,
+                "confidence": "HIGH",
+                "method": f"Matched known alias '{alias}' in document header."
+            }
+
+    label_patterns = [
+        r"(?:Company Name|Entity|Issuer|Reporting Entity)\s*[:\-]\s*([A-Za-z0-9&\.\s]{3,60})",
+    ]
+    for pat in label_patterns:
+        match = re.search(pat, cover_text, re.IGNORECASE)
+        if match:
+            candidate = match.group(1).strip().rstrip(".")
+            return {
+                "detected_name": candidate,
+                "confidence": "HIGH",
+                "method": "Matched explicit entity label on cover page."
+            }
+
+    structural_patterns = [
+        r"([A-Z][A-Za-z0-9&\.\s]{2,50}\s+PLC)",
+        r"([A-Z][A-Za-z0-9&\.\s]{2,50}\s+BANK(?:\s+KENYA)?(?:\s+PLC|\s+LTD|\s+LIMITED)?)",
+        r"([A-Z][A-Za-z0-9&\.\s]{2,50}\s+GROUP(?:\s+PLC|\s+LTD|\s+LIMITED|\s+HOLDINGS)?)",
+        r"([A-Z][A-Za-z0-9&\.\s]{2,50}\s+HOLDINGS(?:\s+PLC|\s+LTD)?)",
+        r"([A-Z][A-Za-z0-9&\.\s]{2,50}\s+LIMITED)",
+    ]
+    for pat in structural_patterns:
+        match = re.search(pat, cover_text)
+        if match:
+            candidate = re.sub(r"\s+", " ", match.group(1).strip())
+            return {
+                "detected_name": candidate,
+                "confidence": "MEDIUM",
+                "method": "Matched structural naming pattern (PLC/BANK/GROUP/LIMITED) on first page."
+            }
+
+    return {
+        "detected_name": None,
+        "confidence": "NONE",
+        "method": "No recognizable entity name found on the first page. Manual confirmation required."
+    }
+
+# -----------------------------------------------------------------------------
 # EVIDENCE TIER SCORING ENGINE
 # -----------------------------------------------------------------------------
 EVIDENCE_TIER_WEIGHTS = {
-    "THIRD_PARTY_AUDITED": 1.00,      # EY/PwC/KPMG ISAE 3000 or ISSA 5000 statement present
-    "PHYSICAL_CERT_ATTACHED": 0.75,   # NEMA/DOSHS/ISO cert copy physically attached
-    "SELF_REPORTED_WITH_ID": 0.50,    # Has a reference code, no attached proof
-    "UNVERIFIED_NARRATIVE": 0.25      # Mentioned in prose only, no ID, no doc
+    "THIRD_PARTY_AUDITED": 1.00,
+    "PHYSICAL_CERT_ATTACHED": 0.75,
+    "SELF_REPORTED_WITH_ID": 0.50,
+    "UNVERIFIED_NARRATIVE": 0.25
 }
 
 def detect_independent_assurance(report_text: str, filenames: list) -> bool:
-    """
-    Checks whether an independent assurance statement (EY/PwC/KPMG/Deloitte)
-    covering the ESG metrics was actually provided — not just referenced narratively.
-    """
     text_lower = report_text.lower()
     auditor_signals = ["ey", "ernst & young", "pwc", "pricewaterhousecoopers", "kpmg", "deloitte"]
     assurance_language = ["independent assurance", "isae 3000", "issa 5000", "limited assurance", "reasonable assurance"]
@@ -47,15 +105,11 @@ def detect_independent_assurance(report_text: str, filenames: list) -> bool:
 
 
 def build_claims_from_metrics(extracted_metrics: list, has_independent_assurance: bool, has_physical_certs: bool) -> list:
-    """
-    Converts extracted metrics into a claims list with evidence-tier flags,
-    used to drive the calibrated score.
-    """
     claims = []
     for m in extracted_metrics:
         claims.append({
             "metric": m.get("metric"),
-            "detected_id": m.get("value"),  # presence of a concrete value counts as an ID-level claim
+            "detected_id": m.get("value"),
             "covered_by_auditor": has_independent_assurance,
             "physical_cert_attached": has_physical_certs
         })
@@ -63,11 +117,6 @@ def build_claims_from_metrics(extracted_metrics: list, has_independent_assurance
 
 
 def calibrate_institution_score(report_text: str, filenames: list, claims: list) -> dict:
-    """
-    Produces a differentiated composite score based on evidence tier,
-    not just disclosure volume. Institutions without independent assurance
-    are hard-capped so they cannot reach 'Bankable / Audit-Ready' status.
-    """
     has_independent_assurance = detect_independent_assurance(report_text, filenames)
 
     tier_scores = []
@@ -116,14 +165,70 @@ def calibrate_institution_score(report_text: str, filenames: list, claims: list)
     }
 
 # -----------------------------------------------------------------------------
+# RECOMMENDATIONS ENGINE
+# -----------------------------------------------------------------------------
+def generate_recommendations(score_result: dict, entity_detection: dict, has_physical_certs: bool, num_metrics: int) -> list:
+    """
+    Produces specific, actionable next-step recommendations based on the
+    gaps identified during scoring — used to populate the full PDF report.
+    """
+    recs = []
+
+    if not score_result["independent_assurance_detected"]:
+        recs.append({
+            "priority": "HIGH",
+            "title": "Commission an Independent Assurance Engagement",
+            "detail": "Engage a recognized external auditor (EY, PwC, KPMG, or Deloitte) to provide a limited or "
+                      "reasonable assurance opinion under ISAE 3000 / ISSA 5000. This is the single highest-impact "
+                      "action available — it lifts the score cap entirely and moves disclosures from 'Self-Reported' "
+                      "to 'Independently Assured'."
+        })
+
+    if not has_physical_certs:
+        recs.append({
+            "priority": "MEDIUM",
+            "title": "Attach Physical Certificate Copies",
+            "detail": "Upload scanned copies of statutory permits and accreditations (NEMA EIA licence, DOSHS safety "
+                      "certificate, ISO 14001/45001) alongside the primary report. Physical proof moves individual "
+                      "claims from 'Self-Reported with ID' to 'Physical Certificate Attached', a meaningfully higher "
+                      "evidence tier."
+        })
+
+    if score_result["final_index_9pt"] < 6.0:
+        recs.append({
+            "priority": "HIGH",
+            "title": "Establish a Pre-Submission Evidence Review Protocol",
+            "detail": "Institute an internal workflow where every disclosed metric is assigned a verifiable reference "
+                      "ID or supporting document before the report is finalized, rather than being published as "
+                      "narrative text alone. This reduces greenwashing risk flags in future assurance cycles."
+        })
+
+    if entity_detection.get("confidence") in ("NONE", "MEDIUM"):
+        recs.append({
+            "priority": "LOW",
+            "title": "Confirm Reporting Entity on Cover Page",
+            "detail": "Ensure the legal entity name is clearly and unambiguously stated on the report's cover or "
+                      "first page (e.g. 'Company Name: XYZ PLC'). This reduces the risk of mismatched-file errors "
+                      "during automated intake in future cycles."
+        })
+
+    recs.append({
+        "priority": "MEDIUM",
+        "title": "Prepare for Next-Cycle Regional Certification",
+        "detail": "Route priority claims through a decentralized certification hub (e.g. Nairobi Central for "
+                  "primary accreditation, Mombasa for export/trade verification) to reduce turnaround time on "
+                  "physical evidence collection ahead of the next reporting cycle."
+    })
+
+    return recs
+
+# -----------------------------------------------------------------------------
 # CORE LOGIC & PARSING FUNCTIONS
 # -----------------------------------------------------------------------------
 def calculate_sha256(file_bytes: bytes) -> str:
-    """Calculates a cryptographic SHA-256 hash for evidence vaulting."""
     return hashlib.sha256(file_bytes).hexdigest()
 
 def extract_text_from_file(uploaded_file) -> str:
-    """Extracts raw text from uploaded files (TXT or fallback decoding)."""
     try:
         content = uploaded_file.getvalue()
         return content.decode("utf-8", errors="ignore")
@@ -131,10 +236,6 @@ def extract_text_from_file(uploaded_file) -> str:
         return f"Error reading document stream: {str(e)}"
 
 def analyze_claims_and_evidence(report_text: str):
-    """
-    Parses corporate disclosure text to extract metrics, identify greenwashing risks,
-    and crosswalk against IFRS S1/S2 & regional frameworks.
-    """
     extracted_metrics = []
 
     scope1_match = re.search(r"scope\s*1\s*[:\-]?\s*([\d,]+\.?\d*)\s*(tco2e|tons|tonnes)?", report_text, re.IGNORECASE)
@@ -171,21 +272,13 @@ def analyze_claims_and_evidence(report_text: str):
     return extracted_metrics
 
 # -----------------------------------------------------------------------------
-# REPORTLAB PDF GENERATOR (INCLUDES ATTACHED AUDITS & CERTIFICATES)
+# REPORTLAB PDF GENERATOR
 # -----------------------------------------------------------------------------
-def generate_pdf_report(company_name, score_result, metrics_data, audit_attachments):
-    """
-    Generates an audit-ready PDF report containing calibrated ESG metrics,
-    an Attached Audit Certificates & Evidentiary Annex, and cryptographic hashes.
-    """
+def generate_pdf_report(company_name, entity_detection, score_result, metrics_data, audit_attachments, recommendations):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
-        buffer,
-        pagesize=letter,
-        rightMargin=36,
-        leftMargin=36,
-        topMargin=36,
-        bottomMargin=36
+        buffer, pagesize=letter,
+        rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36
     )
     story = []
 
@@ -211,10 +304,19 @@ def generate_pdf_report(company_name, score_result, metrics_data, audit_attachme
         'BadgeTextRed', parent=styles['Normal'], fontSize=8, leading=11,
         textColor=colors.HexColor('#C62828')
     )
+    badge_style_amber = ParagraphStyle(
+        'BadgeTextAmber', parent=styles['Normal'], fontSize=8, leading=11,
+        textColor=colors.HexColor('#B45309')
+    )
     code_style = ParagraphStyle(
         'CodeStyle', parent=styles['Normal'], fontName='Courier', fontSize=7, leading=9,
         textColor=colors.HexColor('#444444')
     )
+    priority_colors = {
+        "HIGH": colors.HexColor('#C62828'),
+        "MEDIUM": colors.HexColor('#B45309'),
+        "LOW": colors.HexColor('#2E7D32')
+    }
 
     # 1. HEADER & SUMMARY
     story.append(Paragraph("UUJUZI FORENSIC ASSURANCE ENGINE", title_style))
@@ -223,7 +325,20 @@ def generate_pdf_report(company_name, score_result, metrics_data, audit_attachme
     story.append(Spacer(1, 8))
     story.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor('#0F2C59'), spaceAfter=12))
 
-    # Executive Summary Table — now includes Assurance Status row
+    detected = entity_detection.get("detected_name")
+    if detected and detected.strip().lower() == company_name.strip().lower():
+        entity_status_text = "✅ CONFIRMED — Document cover page matches entered entity name."
+        entity_status_style = badge_style_green
+    elif detected:
+        entity_status_text = f"⚠️ MISMATCH — Document cover page indicates '{detected}', not '{company_name}'. Verify correct file was uploaded."
+        entity_status_style = badge_style_red
+    else:
+        entity_status_text = "⚠️ UNCONFIRMED — No entity name detected on cover page. Manual verification required."
+        entity_status_style = badge_style_amber
+
+    story.append(Paragraph(f"<b>Entity Verification:</b> {entity_status_text}", entity_status_style))
+    story.append(Spacer(1, 8))
+
     is_assured = score_result["independent_assurance_detected"]
     assurance_badge_style = badge_style_green if is_assured else badge_style_red
     assurance_badge_text = "✅ INDEPENDENTLY ASSURED" if is_assured else "⚠️ SELF-REPORTED ONLY — UNVERIFIED"
@@ -231,7 +346,7 @@ def generate_pdf_report(company_name, score_result, metrics_data, audit_attachme
     summary_data = [
         [Paragraph("<b>Composite ESG Assurance Score</b>", body_style), Paragraph(f"<b>{score_result['final_index_9pt']:.1f} / 9.0</b>", body_style)],
         [Paragraph("<b>Rating Tier</b>", body_style), Paragraph(score_result["rating_label"], body_style)],
-        [Paragraph("<b>Assurance Verification Status</b>", body_style), Paragraph(f"<font color='{'#2E7D32' if is_assured else '#C62828'}'><b>{assurance_badge_text}</b></font>", assurance_badge_style)],
+        [Paragraph("<b>Assurance Verification Status</b>", body_style), Paragraph(assurance_badge_text, assurance_badge_style)],
         [Paragraph("<b>Assurance Basis</b>", body_style), Paragraph(score_result["assurance_note"], body_style)],
         [Paragraph("<b>Primary Compliance Frameworks</b>", body_style), Paragraph("IFRS S1, IFRS S2, NSE ESG, UNEP FI, ISO 14064, EU CSRD", body_style)]
     ]
@@ -254,7 +369,7 @@ def generate_pdf_report(company_name, score_result, metrics_data, audit_attachme
             Paragraph(f"<b>{item.get('metric')}</b>", body_style),
             Paragraph(str(item.get('value')), body_style),
             Paragraph(item.get('assessment'), body_style),
-            Paragraph(f"<font color='green'>{item.get('status')}</font>", badge_style_green)
+            Paragraph(item.get('status'), badge_style_green)
         ])
 
     metrics_table = Table(metrics_table_data, colWidths=[130, 85, 245, 80])
@@ -290,7 +405,7 @@ def generate_pdf_report(company_name, score_result, metrics_data, audit_attachme
                 Paragraph(f"<b>{cert_name}</b>", body_style),
                 Paragraph(cert_type, body_style),
                 Paragraph(display_hash, code_style),
-                Paragraph(f"<font color='#2E7D32'><b>{verdict}</b></font>", badge_style_green)
+                Paragraph(verdict, badge_style_green)
             ])
 
         cert_table = Table(cert_table_data, colWidths=[135, 105, 180, 120])
@@ -323,14 +438,35 @@ def generate_pdf_report(company_name, score_result, metrics_data, audit_attachme
             "(EY, PwC, KPMG, Deloitte) has co-signed these disclosures.</i>",
             body_style
         ))
+    story.append(Spacer(1, 12))
 
-    # 4. FOOTER & ASSURANCE DISCLAIMER
+    # 4. RECOMMENDATIONS SECTION
+    story.append(PageBreak())
+    story.append(Paragraph("3. Actionable Recommendations for Next-Cycle Assurance Readiness", h2_style))
+    story.append(Paragraph(
+        "The following recommendations are generated based on the specific gaps identified in this assessment, "
+        "prioritized by their impact on the overall Composite ESG Assurance Score.",
+        body_style
+    ))
+    story.append(Spacer(1, 8))
+
+    for i, rec in enumerate(recommendations, 1):
+        priority = rec.get("priority", "MEDIUM")
+        p_color = priority_colors.get(priority, colors.HexColor('#B45309'))
+        priority_style = ParagraphStyle(f'Priority{i}', parent=body_style, fontSize=8, textColor=p_color)
+
+        story.append(Paragraph(f"<b>{i}. {rec.get('title')}</b>  [{priority} PRIORITY]", priority_style))
+        story.append(Paragraph(rec.get("detail"), body_style))
+        story.append(Spacer(1, 8))
+
+    # 5. FOOTER & ASSURANCE DISCLAIMER
     story.append(Spacer(1, 15))
     story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#CCCCCC'), spaceAfter=8))
     story.append(Paragraph(
         "<b>Uujuzi Assurance Engine Notice:</b> This automated pre-assurance report establishes evidence lineage "
         "and greenwashing risk scoring. Composite scores are capped for entities lacking independent third-party "
-        "assurance, in line with ISSA 5000 and ISAE 3000 evidentiary standards. Embedded cryptographic hashes "
+        "assurance, in line with ISSA 5000 and ISAE 3000 evidentiary standards. Entity name is cross-checked "
+        "against the uploaded document's cover page to reduce mismatched-file risk. Embedded cryptographic hashes "
         "guarantee that uploaded certificates match execution records.",
         ParagraphStyle('Footer', parent=body_style, fontSize=7.5, textColor=colors.HexColor('#666666'))
     ))
@@ -340,6 +476,18 @@ def generate_pdf_report(company_name, score_result, metrics_data, audit_attachme
     return buffer
 
 # -----------------------------------------------------------------------------
+# SESSION STATE INITIALIZATION
+# -----------------------------------------------------------------------------
+if "company_name" not in st.session_state:
+    st.session_state.company_name = ""
+if "entity_detection" not in st.session_state:
+    st.session_state.entity_detection = {"detected_name": None, "confidence": "NONE", "method": ""}
+if "last_processed_file" not in st.session_state:
+    st.session_state.last_processed_file = None
+if "uploader_version" not in st.session_state:
+    st.session_state.uploader_version = 0
+
+# -----------------------------------------------------------------------------
 # STREAMLIT USER INTERFACE
 # -----------------------------------------------------------------------------
 st.title("🛡️ Uujuzi IFRS S1/S2 Forensic Assurance Engine")
@@ -347,12 +495,27 @@ st.markdown("Automated Greenwashing Risk Detection, SDG Mapping, and Certificate
 
 # Sidebar Configuration
 st.sidebar.header("Entity & Audit Setup")
-company_name = st.sidebar.text_input("Target Entity Name", "Uujuzi Corporate Client")
-st.sidebar.info(
-    "The Composite ESG Index is no longer manually set. It is now **automatically calibrated** "
-    "based on whether an independent auditor (EY, PwC, KPMG, Deloitte) has co-signed the disclosures, "
-    "and whether individual claims carry reference IDs or physical certificate attachments."
+company_name = st.sidebar.text_input(
+    "Target Entity Name",
+    value=st.session_state.company_name,
+    placeholder="Auto-fills once a report is uploaded",
+    key="company_name_input"
 )
+st.session_state.company_name = company_name
+
+st.sidebar.info(
+    "The Composite ESG Index is **automatically calibrated** based on whether an independent "
+    "auditor (EY, PwC, KPMG, Deloitte) has co-signed the disclosures, and whether individual "
+    "claims carry reference IDs or physical certificate attachments."
+)
+
+st.sidebar.divider()
+if st.sidebar.button("🗑️ Clear Report & Start Over", use_container_width=True):
+    st.session_state.company_name = ""
+    st.session_state.entity_detection = {"detected_name": None, "confidence": "NONE", "method": ""}
+    st.session_state.last_processed_file = None
+    st.session_state.uploader_version += 1  # forces file_uploader widgets to reset
+    st.rerun()
 
 # Main Intake Layout
 col1, col2 = st.columns(2)
@@ -362,7 +525,7 @@ with col1:
     primary_file = st.file_uploader(
         "Upload Corporate ESG / Integrated Report (PDF, TXT, DOCX)",
         type=["txt", "pdf", "docx"],
-        key="primary_report"
+        key=f"primary_report_{st.session_state.uploader_version}"
     )
 
 with col2:
@@ -371,10 +534,18 @@ with col2:
         "Attach ISO Proofs, Independent Audit Statements, NEMA/DOSHS Certificates",
         type=["pdf", "png", "jpg", "txt"],
         accept_multiple_files=True,
-        key="audit_certificates"
+        key=f"audit_certificates_{st.session_state.uploader_version}"
     )
 
 st.divider()
+
+# -----------------------------------------------------------------------------
+# GATE: Nothing below renders until a primary report is uploaded
+# -----------------------------------------------------------------------------
+if not primary_file:
+    st.info("📄 Upload a primary ESG / Integrated Report above to run the forensic assessment. "
+            "Results will appear here once a document is analyzed.")
+    st.stop()
 
 # Processing uploaded audit certificates
 parsed_attachments = []
@@ -392,21 +563,42 @@ if audit_files:
             "justification": f"File '{a_file.name}' successfully parsed and hashed ({a_hash[:10]}...). Substantiates disclosure claims against statutory frameworks."
         })
 
-# Parsing primary report or generating default assessment
-if primary_file:
-    report_text = extract_text_from_file(primary_file)
-    extracted_metrics = analyze_claims_and_evidence(report_text)
-    st.success(f"Successfully processed primary report: **{primary_file.name}**")
+# Parse primary report + run entity detection
+report_text = extract_text_from_file(primary_file)
+extracted_metrics = analyze_claims_and_evidence(report_text)
+st.success(f"Successfully processed primary report: **{primary_file.name}**")
+
+if st.session_state.last_processed_file != primary_file.name:
+    detection = extract_entity_name_from_text(report_text)
+    st.session_state.entity_detection = detection
+    st.session_state.last_processed_file = primary_file.name
+
+    if detection["detected_name"]:
+        st.session_state.company_name = detection["detected_name"]
+        st.rerun()
+
+# Entity verification banner
+entity_detection = st.session_state.entity_detection
+detected_name = entity_detection.get("detected_name")
+
+if detected_name and detected_name.strip().lower() == company_name.strip().lower():
+    st.success(f"✅ Entity Verified: Document cover page confirms **{detected_name}** — matches Target Entity Name.")
+elif detected_name:
+    st.error(
+        f"⚠️ Entity Mismatch: The uploaded document's cover page indicates **{detected_name}**, "
+        f"but the Target Entity Name field says **{company_name}**. "
+        f"Please confirm you uploaded the correct file, or update the entity name in the sidebar."
+    )
 else:
-    st.info("No primary report uploaded. Utilizing standard baseline metrics demonstration model.")
-    report_text = "Sample Scope 1: 12,450 tCO2e. Scope 2: 8,120 tCO2e."
-    extracted_metrics = analyze_claims_and_evidence(report_text)
+    st.warning(
+        "⚠️ Could not confidently detect a company name on the first page of this document. "
+        "Please manually confirm the Target Entity Name in the sidebar is correct before generating the report."
+    )
 
-# Build filenames list (primary + attachments) for auditor detection
-all_filenames = [primary_file.name] if primary_file else []
-all_filenames += [f.name for f in audit_files] if audit_files else []
+# Build filenames list for auditor detection
+all_filenames = [primary_file.name] + ([f.name for f in audit_files] if audit_files else [])
 
-# Build claims and run the calibrated scoring engine
+# Score
 has_physical_certs = len(parsed_attachments) > 0
 claims = build_claims_from_metrics(
     extracted_metrics,
@@ -414,8 +606,11 @@ claims = build_claims_from_metrics(
     has_physical_certs=has_physical_certs
 )
 score_result = calibrate_institution_score(report_text, all_filenames, claims)
+recommendations = generate_recommendations(score_result, entity_detection, has_physical_certs, len(extracted_metrics))
 
-# Dashboard View
+# -----------------------------------------------------------------------------
+# ON-SCREEN BRIEF SUMMARY (full detail + recommendations reserved for PDF)
+# -----------------------------------------------------------------------------
 st.subheader("Forensic Assessment & Lineage Summary")
 
 col_m1, col_m2, col_m3, col_m4 = st.columns(4)
@@ -434,31 +629,35 @@ st.table(extracted_metrics)
 
 if parsed_attachments:
     st.markdown("### Validated Certificate Attachments")
-    att_display_data = []
-    for att in parsed_attachments:
-        att_display_data.append({
-            "Document Name": att["name"],
-            "Type": att["type"],
-            "SHA-256 Evidence Hash": att["hash"],
-            "Verdict": att["verdict"]
-        })
+    att_display_data = [{
+        "Document Name": att["name"],
+        "Type": att["type"],
+        "SHA-256 Evidence Hash": att["hash"],
+        "Verdict": att["verdict"]
+    } for att in parsed_attachments]
     st.dataframe(att_display_data, use_container_width=True)
+
+with st.expander(f"📋 Preview: {len(recommendations)} Recommendations (full detail in downloaded PDF)"):
+    for rec in recommendations:
+        st.markdown(f"**[{rec['priority']}]** {rec['title']}")
 
 # Report Generation Action
 st.divider()
 st.subheader("Generate Certificate-Backed Assurance PDF Report")
 
-if st.button("🚀 Compile & Download PDF Report", type="primary"):
-    pdf_buffer = generate_pdf_report(
-        company_name=company_name,
-        score_result=score_result,
-        metrics_data=extracted_metrics,
-        audit_attachments=parsed_attachments
-    )
+pdf_buffer = generate_pdf_report(
+    company_name=st.session_state.company_name,
+    entity_detection=st.session_state.entity_detection,
+    score_result=score_result,
+    metrics_data=extracted_metrics,
+    audit_attachments=parsed_attachments,
+    recommendations=recommendations
+)
 
-    st.download_button(
-        label="📥 Download Validated Audit Report PDF",
-        data=pdf_buffer,
-        file_name=f"{company_name.replace(' ', '_')}_IFRS_Assurance_Report.pdf",
-        mime="application/pdf"
-    )
+st.download_button(
+    label="📥 Download Full Validated Audit Report PDF (with Recommendations)",
+    data=pdf_buffer,
+    file_name=f"{st.session_state.company_name.replace(' ', '_') if st.session_state.company_name else 'ESG'}_IFRS_Assurance_Report.pdf",
+    mime="application/pdf",
+    type="primary"
+)

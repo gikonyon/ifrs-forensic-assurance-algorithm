@@ -84,7 +84,6 @@ def analyze_evidence_contents(uploaded_evidences):
     analysis_results["total_analyzed"] += 1
     filename_lower = file.name.lower()
 
-    # Check for visual spatial/GIS evidence
     if (
         any(ext in filename_lower for ext in [".png", ".jpg", ".jpeg"])
         or "gis" in filename_lower
@@ -97,7 +96,6 @@ def analyze_evidence_contents(uploaded_evidences):
           "category": "GIS / Spatial & Temporal Visual Proof",
           "tier": "Verified (External Empirical)",
       })
-    # Check for certificates or independent audit reports
     elif (
         "iso" in filename_lower
         or "audit" in filename_lower
@@ -110,7 +108,6 @@ def analyze_evidence_contents(uploaded_evidences):
           "category": "Compliance Certificate / Statutory Audit",
           "tier": "Verified (Third-Party Assured)",
       })
-    # Check for self-reported frameworks / grievance mechanisms / internal policies
     else:
       analysis_results["self_reported_policies"] += 1
       analysis_results["details"].append({
@@ -125,7 +122,7 @@ def analyze_evidence_contents(uploaded_evidences):
 def generate_assurance_report_pdf(
     entity_name, file_name, evidence_count, evidence_analysis
 ):
-  """Generates a clean, professional PDF report matching executive summary metrics."""
+  """Generates a clean, professional PDF report incorporating full executive summary metrics and evidence breakdown."""
   doc = fitz.open()
   page = doc.new_page(width=595.27, height=841.89)  # Standard A4
 
@@ -151,7 +148,7 @@ def generate_assurance_report_pdf(
   )
 
   # Executive Summary Box
-  page.draw_rect(fitz.Rect(40, 120, 555, 260), color=(0.9, 0.9, 0.9), fill=(0.95, 0.97, 1))
+  page.draw_rect(fitz.Rect(40, 120, 555, 275), color=(0.9, 0.9, 0.9), fill=(0.95, 0.97, 1))
   page.insert_text(
       (55, 145),
       "EXECUTIVE SUMMARY & VERIFIABILITY METRICS",
@@ -169,6 +166,7 @@ def generate_assurance_report_pdf(
   )
 
   comp_score = "8.2 / 9.0" if has_external else ("6.0 / 9.0" if only_policy else "5.0 / 9.0")
+  trace_idx = f"{(evidence_count / 3.0) * 100:.1f}% (Policy Framework)" if only_policy else (f"{(evidence_count / 3.0) * 100:.1f}%" if evidence_count > 0 else "0.0%")
   rating_tier_text = (
       "5-Star (Forensically Validated & Spatial-Checked)"
       if has_external
@@ -180,18 +178,37 @@ def generate_assurance_report_pdf(
   )
 
   summary_text = (
-      f"• Attached Proofs Count: {evidence_count} file(s)\n"
-      f"• GIS / Spatial Visual Proofs: {evidence_analysis['gis_spatial_proofs']}\n"
-      f"• Independent Audits / ISO Certs: {evidence_analysis['audit_certificates']}\n"
-      f"• Self-Reported Policies / Frameworks: {evidence_analysis['self_reported_policies']}\n\n"
       f"• Composite ESG Index: {comp_score}\n"
-      f"• Assigned Rating Tier: {rating_tier_text}"
+      f"• Data Traceability Index: {trace_idx}\n"
+      f"• Rating Tier: {rating_tier_text}\n"
+      f"• Attached Evidence Proofs Count: {evidence_count} file(s)\n"
+      f"  - GIS / Spatial Visual Proofs: {evidence_analysis['gis_spatial_proofs']}\n"
+      f"  - Independent Audits / ISO Certs: {evidence_analysis['audit_certificates']}\n"
+      f"  - Self-Reported Policies / Frameworks: {evidence_analysis['self_reported_policies']}"
   )
-  page.insert_textbox(fitz.Rect(55, 160, 540, 245), summary_text, fontsize=10, fontname="Helvetica")
+  page.insert_textbox(fitz.Rect(55, 160, 540, 260), summary_text, fontsize=10, fontname="Helvetica")
 
-  # Table / Metrics Header
+  # Detailed Evidence Ingestion Log Section inside PDF
   page.insert_text(
-      (40, 290),
+      (40, 310),
+      "ATTACHED EVIDENCE INGESTION BREAKDOWN",
+      fontsize=12,
+      color=(0.05, 0.2, 0.4),
+      fontname="Helvetica-Bold",
+  )
+
+  eval_y = 330
+  if evidence_analysis["details"]:
+    for item in evidence_analysis["details"]:
+      page.insert_text((50, eval_y), f"• {item['file']} — {item['category']} [{item['tier']}]", fontsize=8, fontname="Helvetica", color=(0.3, 0.3, 0.3))
+      eval_y += 14
+  else:
+    page.insert_text((50, eval_y), "• No secondary evidence proofs attached.", fontsize=8, fontname="Helvetica", color=(0.3, 0.3, 0.3))
+    eval_y += 14
+
+  # Metrics Header
+  page.insert_text(
+      (40, max(370, eval_y + 15)),
       "EXTRACTED MULTI-STANDARD ASSURANCE METRICS",
       fontsize=12,
       color=(0.05, 0.2, 0.4),
@@ -200,17 +217,17 @@ def generate_assurance_report_pdf(
 
   metrics = [
       ("Scope 1 & 2 GHG Emissions (IFRS S2 / KS ISO 14064)", "Validated", "Verified"),
-      ("Environmental Management System & Spatial Land-Use", "GIS/NEMA Aligned", "Verified (Spatial-Crosschecked)" if evidence_analysis["gis_spatial_proofs"] > 0 else "Self-Verified"),
+      ("Environmental Management System & Spatial Land-Use", "GIS/NEMA Aligned", "Verified (Spatial-Crosschecked)" if evidence_analysis["gis_spatial_proofs"] > 0 else "Self-Verified (2-Star Cap)" if only_policy else "Self-Reported"),
       ("Occupational Health & Safety (OSHA 2007)", "DOSHS Filed", "Verified"),
       ("Corporate Governance & Data Protection (DPA 2019)", "Framework Active", "Verified (Policy Level)" if only_policy else "Fully Compliant"),
       ("NSE ESG & Central Bank (CBK) Climate Risk Alignment", "Disclosed", "Verified"),
   ]
 
-  y = 320
+  y = max(395, eval_y + 35)
   for m, val, stat in metrics:
-    page.draw_rect(fitz.Rect(40, y, 555, y + 35), color=(0.85, 0.85, 0.85), fill=(1, 1, 1))
-    page.insert_text((50, y + 22), f"{m} | Value: {val} | Status: {stat}", fontsize=9, fontname="Helvetica", color=(0.2, 0.2, 0.2))
-    y += 40
+    page.draw_rect(fitz.Rect(40, y, 555, y + 30), color=(0.85, 0.85, 0.85), fill=(1, 1, 1))
+    page.insert_text((50, y + 19), f"{m} | Value: {val} | Status: {stat}", fontsize=9, fontname="Helvetica", color=(0.2, 0.2, 0.2))
+    y += 35
 
   pdf_bytes = doc.write()
   doc.close()
@@ -274,14 +291,12 @@ if uploaded_file is not None:
   else:
     st.warning(f"Processed primary report: **{file_name}** | Detected Entity: **{target_entity}** (ESG context unverified)")
 
-  # Forensic analysis of attached items
   evidence_analysis = analyze_evidence_contents(uploaded_evidences)
   evidence_count = evidence_analysis["total_analyzed"]
   
   has_external_proofs = evidence_analysis["gis_spatial_proofs"] > 0 or evidence_analysis["audit_certificates"] > 0
   only_self_policies = evidence_analysis["self_reported_policies"] > 0 and not has_external_proofs
 
-  # Dynamic scoring based on evidentiary weight
   if has_external_proofs:
     composite_score = "8.2 / 9.0"
     rating_tier = "5-Star (Forensically Validated & Spatial-Checked)"
@@ -295,7 +310,7 @@ if uploaded_file is not None:
     rating_tier = "3-Star (Moderate / Developing...)"
     traceability_idx = "0.0%"
 
-  # --- Summary Metrics Section (Clean UI) ---
+  # --- Summary Metrics Section ---
   st.markdown("### Comprehensive Forensic & Verifiability Summary")
 
   m1, m2, m3, m4 = st.columns(4)
@@ -311,7 +326,7 @@ if uploaded_file is not None:
   if has_external_proofs:
     st.success(f"✅ Verified using {evidence_count} forensic item(s) including GIS/Spatial or Independent Audit proofs. Score upgraded.")
   elif only_self_policies:
-    st.warning("⚠️ SELF-REPORTED POLICY DETECTED (e.g., Grievance Mechanism[cite: 6]). Categorized as **2-Star Self-Verified** framework document, lacking independent third-party audit metrics.")
+    st.warning("⚠️ SELF-REPORTED POLICY DETECTED (e.g., Grievance Mechanism). Categorized as **2-Star Self-Verified** framework document, lacking independent third-party audit metrics.")
   else:
     st.warning("⚠️ SELF-REPORTED ONLY — no independent third-party assurance statement detected under ISSA 5000 / AA1000. Score capped.")
 
@@ -332,8 +347,8 @@ if uploaded_file is not None:
       {
           "metric": "Environmental Management System & Spatial Land-Use (KS ISO 14001 / NEMA / GIS)",
           "value": "Active EMS / Grievance & Policy Logged" if only_self_policies else "Spatial Temporal Verification Logged",
-          "assessment": "Cross-referenced with institutional grievance workflow frameworks[cite: 6] and comparative mapping evidence.",
-          "status": "Self-Verified (2-Star Tier)" if only_self_policies else "Verified",
+          "assessment": "Cross-referenced with institutional grievance workflow frameworks and comparative mapping evidence.",
+          "status": "Self-Verified (2-Star Tier Cap)" if only_self_policies else "Verified",
       },
       {
           "metric": "Occupational Health & Safety (KS ISO 45001 / OSHA 2007)",
@@ -371,3 +386,5 @@ if uploaded_file is not None:
 
 else:
   st.info("👆 Please upload your primary disclosure report PDF under '1. Primary Disclosure Ingestion' above to begin analysis and verification.")
+
+  

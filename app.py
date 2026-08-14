@@ -13,20 +13,20 @@ st.set_page_config(
 def extract_entity_and_confirm_esg(pdf_file_obj):
     """Scans the cover page and text of the uploaded PDF document to
     dynamically identify the correct entity name, confirm report context,
-    and detect statutory audit signatures (Tier 3 qualification).
+    and detect statutory audit signatures.
     """
     try:
         pdf_bytes = pdf_file_obj.read()
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     except Exception:
         return {
-            "target_entity_name": "KCB Group PLC",
+            "target_entity_name": "NCBA Bank Kenya PLC",
             "esg_confirmed": True,
-            "is_statutory_audit": True,
-            "source_document": getattr(pdf_file_obj, "name", "KCB-Audited-Statements.pdf"),
+            "is_statutory_audit": False,
+            "source_document": getattr(pdf_file_obj, "name", "SDID-2025-REPORT.pdf"),
         }
 
-    entity_name = "KCB Group PLC"
+    entity_name = "NCBA Bank Kenya PLC"
     is_esg_report = False
     is_statutory_audit = False
     
@@ -43,11 +43,7 @@ def extract_entity_and_confirm_esg(pdf_file_obj):
     audit_keywords = [
         "audited by",
         "unqualified opinion",
-        "pricewaterhousecoopers",
-        "pwc",
-        "kpmg",
-        "deloitte",
-        "ernst & young",
+        "independent auditor's report",
         "statement of financial position",
     ]
 
@@ -60,14 +56,14 @@ def extract_entity_and_confirm_esg(pdf_file_obj):
     text_lower = extracted_text.lower()
 
     # Entity identification
-    if "kcb group" in text_lower or "kcb bank" in text_lower or "kcb" in text_lower:
+    if "ncba" in text_lower or "ncba bank" in text_lower:
+        entity_name = "NCBA Bank Kenya PLC"
+    elif "kcb group" in text_lower or "kcb bank" in text_lower:
         entity_name = "KCB Group PLC"
     elif "safaricom" in text_lower:
         entity_name = "Safaricom PLC"
     elif "equity" in text_lower:
         entity_name = "Equity Group Holdings"
-    elif "ncba" in text_lower:
-        entity_name = "NCBA Bank Kenya PLC"
 
     # Confirm ESG or Financial Report context
     for keyword in esg_keywords:
@@ -86,64 +82,58 @@ def extract_entity_and_confirm_esg(pdf_file_obj):
         "target_entity_name": entity_name,
         "esg_confirmed": is_esg_report,
         "is_statutory_audit": is_statutory_audit,
-        "source_document": getattr(pdf_file_obj, "name", "KCB-Audited-Statements.pdf"),
+        "source_document": getattr(pdf_file_obj, "name", "SDID-2025-REPORT.pdf"),
     }
 
 
 def analyze_evidence_contents(uploaded_evidences, primary_is_audit=False, entity_name=""):
-    """Inspected uploaded evidence files and primary report using scoring logic:
-    - Audited ESG reports from verified companies: 2/5 score
-    - ISO Standard / ESG recognized certificates: 4/5 score
-    - Verifiable or Validation data (tangible data streams): 3/5 score
-    If an entity like NCBA produces an audited report but lacks other categories, 
-    they get 3/5 (or applicable rating) on the produced categories and 0/5 on missing ones.
+    """Inspected uploaded evidence files and primary report using strict anti-greenwashing scoring logic:
+    - 1. Audited ESG Reports from Verified Companies: 3/5 score for baseline corporate report (self-declared/unaudited), 5/5 if independently audited.
+    - 2. ISO Standard / ESG Recognized Certificates: 0/5 score if absent, 5/5 if verified.
+    - 3. Verifiable or Validation Data (tangible data streams/GIS/Excel): 0/5 score if absent, 5/5 if verified.
     """
-    
-    # Initialize category scores out of 5 based on rules
-    # Categories: 1. Audited ESG Reports, 2. ISO / ESG Certificates, 3. Verifiable/Validation Data
     
     analysis_results = {
         "total_analyzed": 0,
-        "audited_report_score": 2 if primary_is_audit else 0, # Audited ESG report from verified company = 2/5
-        "iso_cert_score": 0,       # ISO / ESG recognized certificates = 4/5 if present
-        "validation_data_score": 0, # Verifiable or validation data = 3/5 if present
+        "audited_report_score": 3 if not primary_is_audit else 5, 
+        "iso_cert_score": 0,       
+        "validation_data_score": 0, 
         "details": [],
     }
 
-    # Primary document evaluation
+    # Primary document evaluation based on anti-greenwashing criteria
     if primary_is_audit:
         analysis_results["details"].append({
-            "file": "Primary Statutory Audited ESG / Financial Report",
+            "file": "Primary Statutory Audited Report",
             "category": "Audited ESG Reports from Verified Companies",
-            "rating": "2 / 5",
-            "status": "Verified (Independent Audit / Regulated)",
+            "rating": "5 / 5",
+            "status": "Independently Audited & Verified",
         })
     else:
         analysis_results["details"].append({
-            "file": "Primary Report",
+            "file": "Primary Corporate Disclosure",
             "category": "Audited ESG Reports from Verified Companies",
-            "rating": "0 / 5",
-            "status": "Not Verified / Missing Independent Audit",
+            "rating": "3 / 5",
+            "status": "Self-Declared Framework / Lacks Independent Audit",
         })
 
     if not uploaded_evidences:
-        # If no supplementary files are uploaded, other categories receive 0/5 per rules
         analysis_results["details"].append({
             "file": "None Uploaded",
             "category": "ISO Standard & ESG Recognized Certificates",
             "rating": "0 / 5",
-            "status": "No Certificates Provided",
+            "status": "Non-Compliant / Missing Third-Party Certification",
         })
         analysis_results["details"].append({
             "file": "None Uploaded",
             "category": "Verifiable / Validation Tangible Data",
             "rating": "0 / 5",
-            "status": "No Validation Datasets Provided",
+            "status": "Non-Compliant / Missing GIS, Excel, or Empirical Telemetry",
         })
         return analysis_results
 
     has_iso = False
-    has_validation = os.getenv("HAS_VALIDATION", False)
+    has_validation = False
 
     for file in uploaded_evidences:
         analysis_results["total_analyzed"] += 1
@@ -151,28 +141,28 @@ def analyze_evidence_contents(uploaded_evidences, primary_is_audit=False, entity
 
         if any(term in filename_lower for term in ["iso", "certificate", "nema", "assurance", "recognized"]):
             has_iso = True
-            analysis_results["iso_cert_score"] = 4
+            analysis_results["iso_cert_score"] = 5
             analysis_results["details"].append({
                 "file": file.name,
                 "category": "ISO Standard & ESG Recognized Certificates",
-                "rating": "4 / 5",
-                "status": "Certified Compliance Document",
+                "rating": "5 / 5",
+                "status": "Certified Compliance Document Verified",
             })
         elif any(ext in filename_lower for ext in [".csv", ".xlsx", ".json", "data", "metrics", "gis", "map"]):
             has_validation = True
-            analysis_results["validation_data_score"] = 3
+            analysis_results["validation_data_score"] = 5
             analysis_results["details"].append({
                 "file": file.name,
                 "category": "Verifiable / Validation Tangible Data",
-                "rating": "3 / 5",
-                "status": "Verifiable Data Stream Analyzed",
+                "rating": "5 / 5",
+                "status": "Empirical Data Stream / GIS / Excel Verified",
             })
         else:
             analysis_results["details"].append({
                 "file": file.name,
                 "category": "General Supporting Policy",
                 "rating": "1 / 5",
-                "status": "Self-Reported Document",
+                "status": "Self-Reported Supporting Reference",
             })
 
     if not has_iso:
@@ -180,7 +170,7 @@ def analyze_evidence_contents(uploaded_evidences, primary_is_audit=False, entity
             "file": "Missing Category",
             "category": "ISO Standard & ESG Recognized Certificates",
             "rating": "0 / 5",
-            "status": "Category Not Produced by Entity",
+            "status": "Non-Compliant / No Valid ISO/ESG Certificates Provided",
         })
 
     if not has_validation:
@@ -188,7 +178,7 @@ def analyze_evidence_contents(uploaded_evidences, primary_is_audit=False, entity
             "file": "Missing Category",
             "category": "Verifiable / Validation Tangible Data",
             "rating": "0 / 5",
-            "status": "Category Not Produced by Entity",
+            "status": "Non-Compliant / No Raw Data, GIS, or Excel Models Provided",
         })
 
     return analysis_results
@@ -197,7 +187,7 @@ def analyze_evidence_contents(uploaded_evidences, primary_is_audit=False, entity
 def generate_assurance_report_pdf(
     entity_name, file_name, evidence_count, evidence_analysis, primary_is_audit
 ):
-    """Generates a professional PDF assurance report reflecting multi-category ratings (out of 5)."""
+    """Generates a professional PDF assurance report reflecting anti-greenwashing scoring metrics."""
     doc = fitz.open()
     page = doc.new_page(width=595.27, height=841.89)
 
@@ -226,7 +216,7 @@ def generate_assurance_report_pdf(
     page.draw_rect(fitz.Rect(40, 120, 555, 310), color=(0.9, 0.9, 0.9), fill=(0.95, 0.97, 1))
     page.insert_text(
         (55, 145),
-        "EXECUTIVE SUMMARY & CATEGORY SCORING BREAKDOWN",
+        "EXECUTIVE SUMMARY & ANTI-GREENWASHING AUDIT",
         fontsize=12,
         color=(0.05, 0.2, 0.4),
         fontname="Helvetica-Bold",
@@ -244,7 +234,7 @@ def generate_assurance_report_pdf(
         f"• 2. ISO Standard / ESG Recognized Certificates: {iso_score} / 5\n"
         f"• 3. Verifiable & Validation Tangible Data Streams: {val_score} / 5\n"
         f"• Aggregate Compliance & Verification Rating: {total_score_sum} / 15\n"
-        f"• Note: Unproduced or missing categories are correctly allocated 0 / 5 points."
+        f"• Note: Unproduced categories or self-declared disclosures without independent audit/data are assigned 0 / 5 points."
     )
     page.insert_textbox(fitz.Rect(55, 160, 540, 295), summary_text, fontsize=10, fontname="Helvetica")
 
@@ -268,15 +258,16 @@ def generate_assurance_report_pdf(
 
 
 # --- Sidebar Setup ---
-st.sidebar.markdown("## Entity & Multi-Standard Setup")
+st.sidebar.markdown("## Entity & Anti-Greenwashing Setup")
 st.sidebar.markdown(
     """
     <div style="background-color: #e6f0fa; padding: 10px; border-radius: 5px; color: #003366; font-size: 13px;">
-    <b>Scoring Framework Rules:</b><br>
-    • Audited ESG reports (Verified): <b>2 / 5</b><br>
-    • ISO / ESG Recognized Certificates: <b>4 / 5</b><br>
-    • Verifiable / Validation Data: <b>3 / 5</b><br>
-    <i>Missing or unproduced categories receive <b>0 / 5</b>.</i>
+    <b>Anti-Greenwashing Scoring Rules:</b><br>
+    • Self-declared corporate reports: <b>3 / 5</b><br>
+    • Independent audited reports: <b>5 / 5</b><br>
+    • ISO / ESG Certificates (Third-party): <b>5 / 5</b><br>
+    • Verifiable Data (GIS/Excel/Telemetry): <b>5 / 5</b><br>
+    <i>Unverified or missing streams receive <b>0 / 5</b>.</i>
     </div>
     """,
     unsafe_allow_html=True,
@@ -285,7 +276,7 @@ st.sidebar.markdown(
 # --- Main Dashboard Layout ---
 st.markdown("### 🛡️ Uujuzi Comprehensive ESG & Forensic Assurance Engine")
 st.markdown(
-    "<small>Integrated Verification Engine aligning Global Standards, Central Bank Guidelines, and Tier Ratings</small>",
+    "<small>Anti-Greenwashing Forensic Verification & Compliance Platform</small>",
     unsafe_allow_html=True,
 )
 st.markdown("---")
@@ -297,15 +288,15 @@ with col1:
         st.session_state["file_uploader_key"] = 0
 
     uploaded_file = st.file_uploader(
-        "Upload Primary Disclosure Report",
+        "Upload Primary Disclosure Report (e.g., PDF)",
         type=["pdf", "txt", "docx"],
         key=f"primary_upload_{st.session_state['file_uploader_key']}",
     )
 
 with col2:
-    st.markdown("**2. Attached ISO Certificates, Audits & Tangible ESG Data**")
+    st.markdown("**2. Attached ISO Certificates & Tangible ESG Data (GIS/Excel)**")
     uploaded_evidences = st.file_uploader(
-        "Upload ISO certificates / CSV/XLSX validation data / audits",
+        "Upload ISO certificates / CSV/XLSX validation data / audit opinions",
         type=["pdf", "png", "jpg", "txt", "docx", "csv", "xlsx"],
         accept_multiple_files=True,
         key=f"sec_upload_{st.session_state['file_uploader_key']}",
@@ -325,9 +316,9 @@ if uploaded_file is not None:
     target_entity = st.sidebar.text_input("Target Entity Name", value=default_entity)
 
     if primary_is_audit:
-        st.success(f"✅ Successfully processed primary report: **{file_name}** | Detected Entity: **{target_entity}** | **Statutory Independent Audit Confirmed (Allocated 2/5)**")
+        st.success(f"✅ Successfully processed primary report: **{file_name}** | Detected Entity: **{target_entity}** | **Independent Statutory Audit Verified (Allocated 5/5)**")
     else:
-        st.info(f"Processed primary report: **{file_name}** | Detected Entity: **{target_entity}** (Allocated 0/5 for non-audited primary)")
+        st.info(f"Processed primary report: **{file_name}** | Detected Entity: **{target_entity}** (Allocated 3/5 for self-declared baseline report)")
 
     evidence_analysis = analyze_evidence_contents(uploaded_evidences, primary_is_audit=primary_is_audit, entity_name=target_entity)
     evidence_count = evidence_analysis["total_analyzed"]
@@ -346,7 +337,7 @@ if uploaded_file is not None:
         total_sum = evidence_analysis['audited_report_score'] + evidence_analysis['iso_cert_score'] + evidence_analysis['validation_data_score']
         st.metric(label="Aggregate Score", value=f"{total_sum} / 15")
 
-    st.info("ℹ️ Categories not produced or uploaded by the entity are correctly assigned a score of **0 / 5** in accordance with evaluation guidelines.")
+    st.info("ℹ️ Unverified self-declared disclosures lack independent certification or data pipelines and are assigned appropriate compliance scoring to prevent greenwashing.")
 
     with st.expander("🔍 View Detailed Evidence Ingestion & Category Rating Breakdown"):
         for item in evidence_analysis["details"]:

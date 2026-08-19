@@ -2,19 +2,10 @@ import re
 import datetime
 import pandas as pd
 
-
 # ---------------------------------------------------------------------------
 # 1. PRIMARY DISCLOSURE INGESTION
-#    (unchanged feature — confirms the uploaded report belongs to the entity
-#    named on its pages; kept here so the classification steps below can call it)
 # ---------------------------------------------------------------------------
-
 def extract_entity_from_document(document_text, document_name=""):
-    """
-    Confirms the uploaded Primary Disclosure Report (e.g. Annual Report PDF)
-    belongs to the entity named on its pages. This is the existing ingestion
-    step — logic untouched in purpose, just made reusable.
-    """
     header_window = document_text[:2000]
     candidates = re.findall(
         r'([A-Z][A-Za-z&,\.\s]{2,60}(?:PLC|Ltd|Limited|Bank|Inc|Group))',
@@ -30,16 +21,7 @@ def extract_entity_from_document(document_text, document_name=""):
 
 # ---------------------------------------------------------------------------
 # 2. DOCUMENT / STANDARD CLASSIFICATION
-#    Fixes Gap 1 (EY mislabeled as "ISO certificate" instead of ISAE 3000
-#    limited assurance) and Gap 2 (independent GHG verification statements
-#    under-scored as "self-reported").
 # ---------------------------------------------------------------------------
-
-# Standard-name detection is kept STRICTLY separate from assurance-level
-# detection. Matching "ISO 14064-3" requires the literal standard reference,
-# never just an assurance-level phrase like "limited assurance" on its own.
-# This is what fixes the original bug (EY's ISAE 3000 letter, which never
-# mentions ISO 14064-3, must never be tagged as an ISO 14064-3 document).
 STANDARD_NAME_PATTERNS = {
     "ISO 14064-3": r"ISO\s*14064-3",
     "ISAE 3000": r"ISAE\)?\s*3000",
@@ -50,19 +32,11 @@ STANDARD_NAME_PATTERNS = {
     "GHG Protocol": r"GHG\s+Protocol|Greenhouse\s+Gas\s+Protocol",
 }
 
-# Deliberately loose on what follows "reasonable"/"limited" — real documents
-# phrase this inconsistently ("reasonable level of verification", "assurance
-# (limited level)", "limited assurance"), so we match on the level word plus
-# an assurance-related neighbor rather than one rigid word order.
 ASSURANCE_LEVEL_PATTERNS = {
     "reasonable": r"reasonable\s+(level|assurance|verification)",
     "limited": r"limited\s+(level|assurance|verification)",
 }
 
-# Standards that carry a formal assurance-level distinction (reasonable vs
-# limited). Standards without one (GRI, TCFD, SASB, CDP, GHG Protocol) are
-# frameworks/methodologies, not assurance engagements — they never earn an
-# "assurance" tier no matter what other language appears near them.
 ASSURANCE_ENGAGEMENT_STANDARDS = {"ISO 14064-3", "ISAE 3000"}
 
 STANDARD_BASE_TIER = {
@@ -78,7 +52,7 @@ STANDARD_BASE_TIER = {
 TIER_SCORES = {
     ("independent_verification", "reasonable"): 5,
     ("independent_verification", "limited"): 4,
-    ("independent_verification", None): 3,       # standard named, level unclear
+    ("independent_verification", None): 3,
     ("external_assurance", "reasonable"): 5,
     ("external_assurance", "limited"): 4,
     ("external_assurance", None): 3,
@@ -95,15 +69,7 @@ TIER_LABELS = {
     "self_reported": "Self-Reported / Unaudited",
 }
 
-
 def classify_assurance_document(document_text, document_name=""):
-    """
-    Detects which standard(s) an uploaded ISO certificate / audit opinion /
-    verification statement actually invokes, and — separately — the
-    assurance LEVEL (reasonable vs limited) that applies to that specific
-    standard, rather than dumping every third-party document into one
-    blanket "ISO Standard / Certificate" bucket.
-    """
     detected_standards = [
         name for name, pattern in STANDARD_NAME_PATTERNS.items()
         if re.search(pattern, document_text, re.IGNORECASE)
@@ -121,8 +87,6 @@ def classify_assurance_document(document_text, document_name=""):
         candidates = []
         for standard in detected_standards:
             base_tier = STANDARD_BASE_TIER[standard]
-            # Only assurance-engagement standards (ISO 14064-3, ISAE 3000)
-            # get credit for a reasonable/limited level; frameworks don't.
             level_for_this = detected_level if standard in ASSURANCE_ENGAGEMENT_STANDARDS else None
             score = TIER_SCORES.get((base_tier, level_for_this), TIER_SCORES.get((base_tier, None), 0))
             candidates.append((base_tier, level_for_this, score, standard))
@@ -152,18 +116,8 @@ def classify_assurance_document(document_text, document_name=""):
 
 # ---------------------------------------------------------------------------
 # 3. METRIC-LEVEL SCORING FOR SUPPORTING DATA PACKS (XLSX/CSV)
-#    Fixes Gap 3: a data pack should not receive one blanket score when only
-#    some of its metrics carry the company's own assurance marker.
 # ---------------------------------------------------------------------------
-
 def score_data_pack_metrics(dataframe, assured_marker="^"):
-    """
-    Scores each row of an uploaded CSV/XLSX validation file individually.
-    Rows carrying the company's own assurance marker (e.g. '^' for figures
-    EY put in scope) are scored as externally assured; every other row in
-    the same workbook is scored as self-reported / unaudited — even though
-    it sits in the same file as verified figures.
-    """
     results = []
     assured_count = 0
     total_count = 0
@@ -181,7 +135,7 @@ def score_data_pack_metrics(dataframe, assured_marker="^"):
             "row_preview": row_text[:120],
             "assured": is_assured,
             "tier_label": ("Externally Assured (assurance marker detected)" if is_assured
-                            else TIER_LABELS["self_reported"]),
+                           else TIER_LABELS["self_reported"]),
         })
 
     assured_ratio = round(assured_count / total_count, 3) if total_count else 0.0
@@ -197,10 +151,7 @@ def score_data_pack_metrics(dataframe, assured_marker="^"):
 
 # ---------------------------------------------------------------------------
 # 4. COVERAGE / BOUNDARY CHECK ACROSS MULTIPLE ASSURANCE PROVIDERS
-#    Fixes Gap 4: nothing previously checked whether the combined set of
-#    uploaded verification documents actually covers all expected scopes.
 # ---------------------------------------------------------------------------
-
 EXPECTED_BOUNDARIES = [
     "Scope 1",
     "Scope 2",
@@ -219,13 +170,7 @@ BOUNDARY_PATTERNS = {
     "Scope 3 Facilitated Emissions": r"facilitated\s+emissions",
 }
 
-
 def check_assurance_coverage(document_texts):
-    """
-    `document_texts`: list of {"document_name": ..., "text": ...} for every
-    uploaded verification/assurance document. Flags any expected emissions
-    boundary that none of the uploaded documents actually cover.
-    """
     covered = {b: [] for b in EXPECTED_BOUNDARIES}
 
     for doc in document_texts:
@@ -244,10 +189,7 @@ def check_assurance_coverage(document_texts):
 
 # ---------------------------------------------------------------------------
 # 5. RESTATEMENT / DATA-INTEGRITY DISCLOSURE DETECTION
-#    Fixes Gap 5: prior-year restatements should be surfaced as a
-#    transparency note rather than silently passed over.
 # ---------------------------------------------------------------------------
-
 def detect_restatements(document_text, document_name=""):
     pattern = r"([^.]{0,200}restat[a-z]*[^.]{0,200}\.)"
     hits = re.findall(pattern, document_text, re.IGNORECASE)
@@ -259,17 +201,10 @@ def detect_restatements(document_text, document_name=""):
 
 
 # ---------------------------------------------------------------------------
-# 6. GIS / SPATIAL CLAIM VERIFICATION — UNCHANGED FROM THE ORIGINAL ENGINE
-#    Handles physical, location-bound claims (forest cover, school
-#    construction). Left exactly as written; this is a separate verification
-#    pathway from the document-tier scoring above, not a replacement for it.
+# 6. GIS / SPATIAL CLAIM VERIFICATION
 # ---------------------------------------------------------------------------
-
 def evaluate_esg_claim(entity_name, claim_id, category, claimed_metric,
-                        claim_year, spatial_bounds, gis_observation_data):
-    """
-    Evaluates a corporate ESG claim against historical GIS data and independent audits.
-    """
+                       claim_year, spatial_bounds, gis_observation_data):
     current_year = 2026
     if claim_year < 2017 or claim_year > current_year:
         return {"Error": "Claim year out of supported historical GIS verification window (2017-2026)."}
@@ -310,109 +245,59 @@ def evaluate_esg_claim(entity_name, claim_id, category, claimed_metric,
 
 
 # ---------------------------------------------------------------------------
-# 7. AGGREGATE REPORT BUILDER
-#    Ties everything above to the two existing upload steps:
-#      Step 1 — Primary Disclosure Ingestion (main report PDF)
-#      Step 2 — Attached ISO Certificates & Tangible ESG Data (GIS/Excel)
-#    The upload flow itself is unchanged; only the scoring that runs on
-#    what's uploaded is replaced.
-# ---------------------------------------------------------------------------
-
-def build_verification_report(entity_name, primary_disclosure_text, primary_disclosure_name,
-                                supporting_documents, data_pack_dataframes=None,
-                                gis_claims=None):
-    """
-    supporting_documents: list of {"document_name": ..., "text": ...}
-        -> ISO certificates, audit opinions, verification statements
-    data_pack_dataframes: optional list of {"document_name": ..., "dataframe": pd.DataFrame}
-        -> uploaded CSV/XLSX validation data
-    gis_claims: optional list of kwargs dicts to pass to evaluate_esg_claim,
-        for any location-bound physical claims found in the primary disclosure
-    """
-    ingestion_check = extract_entity_from_document(primary_disclosure_text, primary_disclosure_name)
-
-    document_classifications = [
-        classify_assurance_document(doc["text"], doc["document_name"])
-        for doc in supporting_documents
-    ]
-
-    coverage = check_assurance_coverage(supporting_documents)
-
-    all_docs_for_restatement_check = supporting_documents + [
-        {"document_name": primary_disclosure_name, "text": primary_disclosure_text}
-    ]
-    restatement_flags = [
-        r for r in (detect_restatements(d["text"], d["document_name"]) for d in all_docs_for_restatement_check)
-        if r["restatement_disclosed"]
-    ]
-
-    data_pack_scores = []
-    if data_pack_dataframes:
-        for pack in data_pack_dataframes:
-            score = score_data_pack_metrics(pack["dataframe"])
-            score["document_name"] = pack["document_name"]
-            data_pack_scores.append(score)
-
-    gis_results = []
-    if gis_claims:
-        gis_results = [evaluate_esg_claim(**claim) for claim in gis_claims]
-
-    all_tier_scores = [d["tier_score"] for d in document_classifications]
-    max_possible = len(all_tier_scores) * 5 if all_tier_scores else 1
-    aggregate_score = sum(all_tier_scores)
-
-    return {
-        "entity_evaluated": entity_name,
-        "primary_disclosure_ingestion": ingestion_check,
-        "document_classifications": document_classifications,
-        "coverage_check": coverage,
-        "restatement_disclosures": restatement_flags,
-        "data_pack_metric_scores": data_pack_scores,
-        "gis_claim_results": gis_results,
-        "aggregate_score": f"{aggregate_score} / {max_possible}",
-    }
-
-
-# ---------------------------------------------------------------------------
-# EXAMPLE RUN
+# 7. AGGREGATE REPORT BUILDER & EXECUTION BLOCK
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
-    sample_gis_data_1 = {'baseline_ndvi': 0.62, 'current_ndvi': 0.41}
-    result_1 = evaluate_esg_claim(
+    print("======================================================================")
+    print("       UUJUZI FORENSIC ESG & ASSURANCE ENGINE - EXECUTION REPORT       ")
+    print("======================================================================")
+
+    # 1. Run GIS Spatial Claim Check
+    sample_gis_data = {'baseline_ndvi': 0.62, 'current_ndvi': 0.41}
+    gis_res = evaluate_esg_claim(
         entity_name="GreenCorp Ltd",
         claim_id="CLM-2021-04",
         category="Environmental",
         claimed_metric="5,000 ha of indigenous forest restored and protected since 2017",
         claim_year=2021,
         spatial_bounds="Polygon(1.2921, 36.8219)",
-        gis_observation_data=sample_gis_data_1,
+        gis_observation_data=sample_gis_data,
     )
-    print("--- GIS Spatial Claim Check (unchanged) ---")
-    print(pd.DataFrame([result_1]).to_string(index=False))
+    print("\n[1] GIS SPATIAL CLAIM VALIDATION (2017-2026 Window):")
+    print(f"  • Claim: {gis_res['ClaimedMetric']}")
+    print(f"  • Status: {gis_res['TrustStatus']}")
+    print(f"  • Findings: {gis_res['Findings']}")
 
-    ey_text = ("Ernst & Young LLP was engaged by Standard Chartered Plc to perform a limited "
-               "assurance engagement in accordance with International Standard on Assurance "
-               "Engagements (ISAE) 3000 (Revised).")
-    se_text = ("SE Advisory Services... provided independent third-party reasonable verification "
-               "of Scope 3 emissions... aligned with the ISO 14064-3:2019 standard.")
-    gd_text = ("Global Documentation... provide independent assurance (limited level) of carbon "
-               "emissions... in accordance with ISO 14064-3.")
+    # 2. Run Document Assurance Classifications
+    ey_text = "Ernst & Young LLP performed a limited assurance engagement in accordance with ISAE 3000 (Revised)."
+    se_text = "SE Advisory Services provided independent reasonable verification of Scope 3 emissions aligned with ISO 14064-3."
+    gd_text = "Global Documentation provided independent assurance (limited level) of carbon emissions in accordance with ISO 14064-3."
 
-    print("\n--- Document Classification Check (fixes Gaps 1 & 2) ---")
-    print(pd.DataFrame([
-        classify_assurance_document(ey_text, "ey-assurance-report-sustainability.pdf"),
-        classify_assurance_document(se_text, "environmental-verification-report-ea.pdf"),
-        classify_assurance_document(gd_text, "environmental-verification-report-gd.pdf"),
-    ])[["document_name", "detected_standards", "tier_label", "tier_score", "verifier"]].to_string(index=False))
+    classifications = [
+        classify_assurance_document(ey_text, "ey-assurance.pdf"),
+        classify_assurance_document(se_text, "se-verification.pdf"),
+        classify_assurance_document(gd_text, "gd-verification.pdf")
+    ]
+    
+    print("\n[2] DOCUMENT ASSURANCE CLASSIFICATIONS:")
+    for c in classifications:
+        print(f"  • {c['document_name']} ──► {c['tier_label']} (Verifier: {c['verifier']}) [Score: {c['tier_score']}/5]")
 
-    print("\n--- Coverage Check (fixes Gap 4) ---")
+    # 3. Run Coverage Check
     coverage_result = check_assurance_coverage([
-        {"document_name": "ey-assurance-report-sustainability.pdf", "text": ey_text + " financed emissions facilitated emissions"},
-        {"document_name": "environmental-verification-report-ea.pdf", "text": se_text + " business travel"},
-        {"document_name": "environmental-verification-report-gd.pdf", "text": gd_text + " Scope 1 Scope 2 data centre"},
+        {"document_name": "ey-assurance.pdf", "text": ey_text + " financed emissions facilitated emissions"},
+        {"document_name": "se-verification.pdf", "text": se_text + " business travel"},
+        {"document_name": "gd-verification.pdf", "text": gd_text + " Scope 1 Scope 2 data centre"},
     ])
-    print(coverage_result)
+    print("\n[3] ASSURANCE BOUNDARY COVERAGE CHECK:")
+    print(f"  • Complete Coverage Achieved?: {coverage_result['coverage_complete']}")
+    print(f"  • Uncovered Scope Gaps: {coverage_result['uncovered_boundaries'] if coverage_result['uncovered_boundaries'] else 'None detected'}")
 
-    print("\n--- Restatement Detection (fixes Gap 5) ---")
+    # 4. Restatement Check
     restatement_text = "Total prior year balances have been restated resulting in an increase of $2.2 billion."
-    print(detect_restatements(restatement_text, "esg-data-pack.xlsx"))
+    restatement_res = detect_restatements(restatement_text, "esg-data-pack.xlsx")
+    print("\n[4] RESTATEMENT & TRANSPARENCY DISCLOSURES:")
+    print(f"  • Restatement Disclosed in {restatement_res['document_name']}: {restatement_res['restatement_disclosed']}")
+    if restatement_res['restatement_excerpts']:
+        print(f"  • Excerpt: \"{restatement_res['restatement_excerpts'][0]}\"")
+    print("======================================================================")

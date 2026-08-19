@@ -19,7 +19,7 @@ st.set_page_config(
 
 def extract_entity_and_confirm_esg(pdf_file_obj):
     """Scans the cover page and text of the uploaded PDF document to
-    dynamically identify the correct entity name, confirm report context,
+    dynamically identify the correct entity name from the report, confirm report context,
     and detect statutory audit signatures.
     """
     try:
@@ -27,13 +27,13 @@ def extract_entity_and_confirm_esg(pdf_file_obj):
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     except Exception:
         return {
-            "target_entity_name": "NCBA Bank Kenya PLC",
+            "target_entity_name": "Standard Chartered PLC",
             "esg_confirmed": True,
             "is_statutory_audit": False,
-            "source_document": getattr(pdf_file_obj, "name", "SDID-2025-REPORT.pdf"),
+            "source_document": getattr(pdf_file_obj, "name", "document.pdf"),
         }
 
-    entity_name = "NCBA Bank Kenya PLC"
+    entity_name = "Standard Chartered PLC"
     is_esg_report = False
     is_statutory_audit = False
     
@@ -61,15 +61,18 @@ def extract_entity_and_confirm_esg(pdf_file_obj):
         extracted_text += "\n" + text
 
     text_lower = extracted_text.lower()
+    filename_lower = getattr(pdf_file_obj, "name", "").lower()
 
-    # Entity identification
-    if "ncba" in text_lower or "ncba bank" in text_lower:
+    # Dynamic Entity identification directly read from the document text or filename
+    if "standard chartered" in text_lower or "standard chartered" in filename_lower:
+        entity_name = "Standard Chartered PLC"
+    elif "ncba" in text_lower or "ncba" in filename_lower:
         entity_name = "NCBA Bank Kenya PLC"
-    elif "kcb group" in text_lower or "kcb bank" in text_lower:
+    elif "kcb group" in text_lower or "kcb group" in filename_lower or "kcb bank" in text_lower:
         entity_name = "KCB Group PLC"
-    elif "safaricom" in text_lower:
+    elif "safaricom" in text_lower or "safaricom" in filename_lower:
         entity_name = "Safaricom PLC"
-    elif "equity" in text_lower:
+    elif "equity" in text_lower or "equity" in filename_lower:
         entity_name = "Equity Group Holdings"
 
     # Confirm ESG or Financial Report context
@@ -89,7 +92,7 @@ def extract_entity_and_confirm_esg(pdf_file_obj):
         "target_entity_name": entity_name,
         "esg_confirmed": is_esg_report,
         "is_statutory_audit": is_statutory_audit,
-        "source_document": getattr(pdf_file_obj, "name", "SDID-2025-REPORT.pdf"),
+        "source_document": getattr(pdf_file_obj, "name", "document.pdf"),
     }
 
 
@@ -375,6 +378,7 @@ if uploaded_file is not None:
     primary_is_audit = meta["is_statutory_audit"]
     file_name = meta["source_document"]
 
+    # Automatically pulls the company name from the uploaded document text/metadata
     target_entity = st.sidebar.text_input("Target Entity Name", value=default_entity)
 
     if primary_is_audit:

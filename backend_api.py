@@ -4,13 +4,23 @@ import json
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from pydantic import BaseModel
 
+# Import core forensic engine functions
+from models.esg_forensic_engine import (
+    classify_assurance_document,
+    check_assurance_coverage,
+    detect_restatements,
+    evaluate_esg_claim
+)
+
 app = FastAPI(
-    title="Uujuzi ESG Assurance Microservice",
-    description="REST API layer for real-economy regulatory verification and cryptographic evidence locking.",
+    title="Uujuzi Forensic & ESG Assurance Engine API",
+    description="Unified REST API layer for real-economy regulatory verification, cryptographic evidence vaulting, and ESG forensic analytics.",
     version="2.0.0"
 )
 
+# ---------------------------------------------------------------------------
 # Request Models
+# ---------------------------------------------------------------------------
 class SpatialRequest(BaseModel):
     latitude: float
     longitude: float
@@ -21,15 +31,22 @@ class IncidentRequest(BaseModel):
     description: str
     employee_id: str
 
-# API Endpoints
+
+# ---------------------------------------------------------------------------
+# Health & Status Endpoints
+# ---------------------------------------------------------------------------
 @app.get("/")
 def health_check():
     return {
         "status": "online",
-        "service": "Uujuzi ESG Assurance Engine",
+        "service": "Uujuzi Forensic & ESG Assurance Engine",
         "timestamp": datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
     }
 
+
+# ---------------------------------------------------------------------------
+# Cryptographic Evidence Vault Endpoints
+# ---------------------------------------------------------------------------
 @app.post("/api/v1/vault/lock")
 async def api_lock_evidence(
     issuer_id: str = Form(...),
@@ -52,6 +69,10 @@ async def api_lock_evidence(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+# ---------------------------------------------------------------------------
+# Spatial & Jurisdiction Compliance Endpoints (EUDR / NEMA)
+# ---------------------------------------------------------------------------
 @app.post("/api/v1/verify-spatial")
 def api_verify_spatial(req: SpatialRequest):
     # Coordinate Bounds Check for Kenya (-4.7 to 5.5 Lat, 33.9 to 41.9 Lon)
@@ -80,6 +101,10 @@ def api_verify_spatial(req: SpatialRequest):
         }
     }
 
+
+# ---------------------------------------------------------------------------
+# Workplace Incident Logging (DOSHS Compliance) Endpoints
+# ---------------------------------------------------------------------------
 @app.post("/api/v1/incidents/log")
 def api_log_incident(req: IncidentRequest):
     inc_type = req.incident_type.lower()
@@ -100,3 +125,19 @@ def api_log_incident(req: IncidentRequest):
     payload["hash"] = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()[:12]
     
     return {"status": "success", "data": payload}
+
+
+# ---------------------------------------------------------------------------
+# Forensic Engine & Assurance Tiering Endpoints
+# ---------------------------------------------------------------------------
+@app.post("/api/v1/classify-document")
+async def api_classify(text: str, filename: str = "document.pdf"):
+    return classify_assurance_document(text, filename)
+
+@app.post("/api/v1/evaluate-claim")
+async def api_evaluate_claim(
+    entity_name: str, claim_id: str, category: str, 
+    claimed_metric: str, claim_year: int
+):
+    dummy_gis = {'baseline_ndvi': 0.6, 'current_ndvi': 0.4}
+    return evaluate_esg_claim(entity_name, claim_id, category, claimed_metric, claim_year, "Polygon()", dummy_gis)

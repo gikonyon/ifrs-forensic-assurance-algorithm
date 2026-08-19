@@ -7,7 +7,8 @@ from models.esg_forensic_engine import (
     check_assurance_coverage,
     detect_restatements,
     evaluate_esg_claim,
-    build_verification_report
+    build_verification_report,
+    generate_forensic_pdf_report
 )
 
 st.set_page_config(
@@ -17,7 +18,7 @@ st.set_page_config(
 )
 
 st.title("🌱 Uujuzi Forensic ESG & Assurance Engine")
-st.markdown("Automated Greenwashing Detection, Multi-Document Assurance Tiering, Data Pack Scoring, and GIS Spatial Verification")
+st.markdown("Automated Greenwashing Detection, Multi-Document Assurance Tiering, Data Pack Scoring, GIS Spatial Verification, and Executive PDF Reporting")
 
 # Navigation Tabs
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
@@ -166,7 +167,7 @@ with tab5:
     
     if st.button("Run Multi-Document Coverage Audit"):
         docs_to_check = []
-        if audit_files:
+        if 'audit_files' in locals() and audit_files:
             for f in audit_files:
                 docs_to_check.append({"document_name": f.name, "text": f.getvalue().decode("utf-8", errors="ignore")})
         else:
@@ -186,20 +187,20 @@ with tab5:
             st.success("No scope gaps detected across files!")
 
 # ---------------------------------------------------------------------------
-# TAB 6: Comprehensive Verification Report Builder
+# TAB 6: Comprehensive Verification Report Builder & PDF Export
 # ---------------------------------------------------------------------------
 with tab6:
-    st.subheader("Comprehensive Verification Report Generator")
-    st.markdown("Compile all uploaded primary reports, audit certifications, and data packs into a final verification report.")
+    st.subheader("Comprehensive Verification Report Generator & PDF Export")
+    st.markdown("Compile all uploaded primary reports, audit certifications, and data packs into a final verification report and export as a PDF.")
     
-    entity_name_input = st.text_input("Company / Entity Evaluated Name", "Standard Chartered Plc")
+    entity_name_input = st.text_input("Company / Entity Evaluated Name", "Standard Chartered Plc", key="eval_entity_name")
     
     if st.button("Generate Final Verified Report"):
-        primary_text_sample = primary_files[0].getvalue().decode("utf-8", errors="ignore") if primary_files else "Standard Chartered Plc Annual Report..."
-        primary_name_sample = primary_files[0].name if primary_files else "primary_report.pdf"
+        primary_text_sample = primary_files[0].getvalue().decode("utf-8", errors="ignore") if 'primary_files' in locals() and primary_files else "Standard Chartered Plc Annual Report..."
+        primary_name_sample = primary_files[0].name if 'primary_files' in locals() and primary_files else "primary_report.pdf"
         
         supporting_docs_sample = []
-        if audit_files:
+        if 'audit_files' in locals() and audit_files:
             for f in audit_files:
                 supporting_docs_sample.append({"document_name": f.name, "text": f.getvalue().decode("utf-8", errors="ignore")})
         else:
@@ -217,5 +218,24 @@ with tab6:
             data_pack_dataframes=sample_dp
         )
         
+        # Save to session state so download handles persist across interactions
+        st.session_state['verification_report_dict'] = report
         st.success("Verified ESG Compliance Report Generated Successfully!")
-        st.json(report)
+
+    # Display Report and Download Button if present in session state
+    if 'verification_report_dict' in st.session_state:
+        current_report = st.session_state['verification_report_dict']
+        st.json(current_report)
+        
+        st.markdown("---")
+        st.subheader("📥 Download Executive PDF Report")
+        
+        pdf_binary = generate_forensic_pdf_report(current_report)
+        
+        st.download_button(
+            label="📄 Download Official PDF Report",
+            data=pdf_binary,
+            file_name=f"ESG_Assurance_Report_{current_report.get('EntityName', 'Entity').replace(' ', '_')}.pdf",
+            mime="application/pdf",
+            help="Click to generate and download your executive compliance audit report."
+        )

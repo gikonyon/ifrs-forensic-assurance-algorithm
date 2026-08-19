@@ -21,55 +21,86 @@ st.markdown("Automated Greenwashing Detection, Assurance Tiering, Data Pack Scor
 
 # Navigation Tabs
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-    "📄 Document Classifier", 
-    "📊 Data Pack Scoring", 
+    "📄 Primary ESG Report Ingestion", 
+    "📜 ISO Standards & Audits", 
+    "📊 Supporting Data Pack Scoring", 
     "🗺️ GIS Spatial Audit", 
-    "🛡️ Boundary Coverage", 
-    "🔍 Restatement Detector",
-    "📑 Comprehensive Report Builder"
+    "🛡️ Boundary Coverage & Gaps",
+    "📑 Comprehensive Verification Report"
 ])
 
 # ---------------------------------------------------------------------------
-# TAB 1: Document Assurance Tiering
+# TAB 1: Primary ESG Report Ingestion & Entity Verification
 # ---------------------------------------------------------------------------
 with tab1:
-    st.subheader("Assurance Statement Classifier & Entity Extractor")
-    doc_name_input = st.text_input("Document File Name", "sustainability_report_2025.pdf")
-    doc_text = st.text_area(
-        "Paste Assurance Statement / Report Text:", 
-        "Ernst & Young LLP was engaged by Standard Chartered Plc to perform a limited assurance engagement in accordance with International Standard on Assurance Engagements (ISAE) 3000 (Revised)."
-    )
+    st.subheader("Primary ESG Report Ingestion")
+    st.markdown("Upload or paste text from the company's primary annual or sustainability report to confirm entity ownership and detect disclosures.")
     
-    if st.button("Run Document Analysis"):
-        entity_res = extract_entity_from_document(doc_text, doc_name_input)
-        class_res = classify_assurance_document(doc_text, doc_name_input)
+    primary_file = st.file_uploader("Upload Primary ESG Report (PDF/TXT)", type=["pdf", "txt"])
+    primary_text_input = st.text_area(
+        "Or Paste Primary ESG Report Text:", 
+        "Standard Chartered Plc Annual Report 2025: We are committed to achieving net-zero financed emissions..."
+    )
+    doc_name = primary_file.name if primary_file else "annual_report_2025.pdf"
+    
+    if st.button("Ingest & Verify Primary Report"):
+        text_to_analyze = primary_file.getvalue().decode("utf-8", errors="ignore") if primary_file else primary_text_input
+        entity_res = extract_entity_from_document(text_to_analyze, doc_name)
+        restatement_res = detect_restatements(text_to_analyze, doc_name)
         
         col1, col2 = st.columns(2)
         with col1:
             st.info(f"**Detected Entity:** {entity_res['detected_entity'] or 'Not explicitly identified in header'} (Confidence: {entity_res['confidence']})")
         with col2:
-            st.success(f"**Assigned Tier:** {class_res['tier_label']}")
-            
+            if restatement_res["restatement_disclosed"]:
+                st.warning("⚠️ Prior-year restatement disclosure detected.")
+            else:
+                st.success("No restatement anomalies detected.")
+                
+        st.json(entity_res)
+
+# ---------------------------------------------------------------------------
+# TAB 2: ISO Standards & External ESG Audits
+# ---------------------------------------------------------------------------
+with tab2:
+    st.subheader("ISO Standards & Third-Party Assurance Classification")
+    st.markdown("Upload or paste independent assurance statements, ISO 14064-3 certificates, or ISAE 3000 audit opinions.")
+    
+    audit_file = st.file_uploader("Upload Assurance Opinion / ISO Certificate (PDF/TXT)", type=["pdf", "txt"], key="audit_up")
+    audit_text_input = st.text_area(
+        "Or Paste Assurance Statement Text:", 
+        "Ernst & Young LLP was engaged by Standard Chartered Plc to perform a limited assurance engagement in accordance with International Standard on Assurance Engagements (ISAE) 3000 (Revised)."
+    )
+    audit_name = audit_file.name if audit_file else "ey_assurance_opinion.pdf"
+    
+    if st.button("Classify Assurance Tier & Standards"):
+        text_to_analyze = audit_file.getvalue().decode("utf-8", errors="ignore") if audit_file else audit_text_input
+        class_res = classify_assurance_document(text_to_analyze, audit_name)
+        
+        st.success(f"**Assigned Tier:** {class_res['tier_label']}")
         st.json(class_res)
 
 # ---------------------------------------------------------------------------
-# TAB 2: Metric-Level Scoring for Supporting Data Packs (CSV/XLSX)
+# TAB 3: Metric-Level Scoring for Supporting Data Packs (CSV/XLSX)
 # ---------------------------------------------------------------------------
-with tab2:
+with tab3:
     st.subheader("Supporting Data Pack Auditor (CSV / Excel)")
-    st.markdown("Upload a tabular data file or use the default test dataframe to check which metrics carry assurance markers (`^`).")
+    st.markdown("Upload your structured ESG metrics file to audit which values carry recognized external assurance markers (`^`).")
     
-    uploaded_file = st.file_uploader("Upload CSV Data Pack File", type=["csv", "txt"])
+    data_file = st.file_uploader("Upload Data Pack (CSV / Excel)", type=["csv", "xlsx", "txt"])
     marker_symbol = st.text_input("Assurance Marker Symbol", "^")
     
-    if uploaded_file is not None:
+    df = pd.DataFrame()
+    if data_file is not None:
         try:
-            df = pd.read_csv(uploaded_file)
+            if data_file.name.endswith('.csv'):
+                df = pd.read_csv(data_file)
+            else:
+                df = pd.read_excel(data_file)
         except Exception as e:
             st.error(f"Error reading file: {e}")
-            df = pd.DataFrame()
     else:
-        # Default sample data pack dataframe
+        # Default sample dataframe
         df = pd.DataFrame({
             "Metric_ID": ["M-01", "M-02", "M-03", "M-04"],
             "Description": [
@@ -96,9 +127,9 @@ with tab2:
             st.dataframe(pd.DataFrame(pack_res["row_level_detail"]))
 
 # ---------------------------------------------------------------------------
-# TAB 3: GIS Spatial Claim Auditor
+# TAB 4: GIS Spatial Claim Auditor
 # ---------------------------------------------------------------------------
-with tab3:
+with tab4:
     st.subheader("GIS Spatial Claim Auditor (2017–2026 Verification Window)")
     entity = st.text_input("Entity Name", "GreenCorp Ltd")
     claim_id = st.text_input("Claim ID", "CLM-2021-04")
@@ -107,7 +138,7 @@ with tab3:
     year = st.number_input("Claim Year", min_value=2017, max_value=2026, value=2021)
     
     st.markdown("---")
-    st.markdown("**Simulated Satellite Observation Parameters**")
+    st.markdown("**Simulated Satellite & GIS Observation Parameters**")
     base_ndvi = st.slider("Baseline NDVI", 0.0, 1.0, 0.62)
     curr_ndvi = st.slider("Current Observation NDVI", 0.0, 1.0, 0.41)
     
@@ -123,15 +154,15 @@ with tab3:
         st.json(audit)
 
 # ---------------------------------------------------------------------------
-# TAB 4: Assurance Scope & Boundary Coverage Check
+# TAB 5: Assurance Scope & Boundary Coverage Check
 # ---------------------------------------------------------------------------
-with tab4:
+with tab5:
     st.subheader("Assurance Scope & Boundary Coverage Check")
-    st.info("Ensures all mandatory carbon and emissions scopes are fully covered across provider documents.")
+    st.info("Ensures all mandatory carbon and emissions scopes (Scope 1, 2, and targeted Scope 3 categories) are fully covered.")
     
     if st.button("Run Multi-Document Coverage Audit"):
         sample_docs = [
-            {"document_name": "ey-assurance-report.pdf", "text": "Ernst & Young LLP performed limited assurance covering Scope 1 Scope 2 financed emissions facilitated emissions."},
+            {"document_name": "ey-assurance.pdf", "text": "Ernst & Young LLP performed limited assurance covering Scope 1 Scope 2 financed emissions facilitated emissions."},
             {"document_name": "se-verification.pdf", "text": "SE Advisory Services verified business travel."},
             {"document_name": "gd-verification.pdf", "text": "Global Documentation verified data centre power usage."}
         ]
@@ -147,36 +178,15 @@ with tab4:
             st.success("No scope gaps detected across files!")
 
 # ---------------------------------------------------------------------------
-# TAB 5: Restatement & Transparency Disclosure Detector
-# ---------------------------------------------------------------------------
-with tab5:
-    st.subheader("Restatement & Data-Integrity Disclosure Detector")
-    restatement_input = st.text_area(
-        "Paste Report Text to Scan for Restatements:",
-        "Total prior year balances have been restated resulting in an increase of $2.2 billion."
-    )
-    
-    if st.button("Detect Restatements"):
-        res_data = detect_restatements(restatement_input, "uploaded_report.pdf")
-        if res_data["restatement_disclosed"]:
-            st.warning("⚠️ Restatement disclosure detected in text!")
-            st.write("**Excerpts Found:**")
-            for ex in res_data["restatement_excerpts"]:
-                st.code(ex)
-        else:
-            st.success("No restatement disclosures identified in the provided snippet.")
-
-# ---------------------------------------------------------------------------
-# TAB 6: Comprehensive Aggregate Report Builder
+# TAB 6: Comprehensive Verification Report Builder
 # ---------------------------------------------------------------------------
 with tab6:
-    st.subheader("Comprehensive Verification Report Builder")
-    st.markdown("Run the full diagnostic assessment combining primary disclosures, supporting third-party verification files, and data packs.")
+    st.subheader("Comprehensive Verification Report Generator")
+    st.markdown("Compile all uploaded reports, ISO verification opinions, and data packs into a single verified ESG compliance report.")
     
-    entity_name_input = st.text_input("Company / Entity Evaluated", "Standard Chartered Plc")
-    primary_text_input = st.text_area("Primary Disclosure Text", "Standard Chartered Plc Annual Report 2025 disclosures...")
+    entity_name_input = st.text_input("Company / Entity Evaluated Name", "Standard Chartered Plc")
     
-    if st.button("Generate Comprehensive Report"):
+    if st.button("Generate Final Verified Report"):
         supporting_docs_sample = [
             {"document_name": "ey-assurance.pdf", "text": "Ernst & Young LLP performed a limited assurance engagement in accordance with ISAE 3000 (Revised). financed emissions facilitated emissions"},
             {"document_name": "se-verification.pdf", "text": "SE Advisory Services provided independent third-party reasonable verification of Scope 3 emissions aligned with ISO 14064-3:2019. business travel"}
@@ -186,10 +196,10 @@ with tab6:
         report = build_verification_report(
             entity_name=entity_name_input,
             primary_disclosure_text=primary_text_input,
-            primary_disclosure_name="primary_report.pdf",
+            primary_disclosure_name=doc_name,
             supporting_documents=supporting_docs_sample,
             data_pack_dataframes=sample_dp
         )
         
-        st.success("Verification Report Successfully Generated!")
+        st.success("Verified ESG Compliance Report Generated Successfully!")
         st.json(report)

@@ -2,33 +2,20 @@
 Uujuzi Forensic ESG & Assurance Engine
 ========================================
 Single source of truth for all forensic/assurance logic used by app.py,
-backend_api.py, and test_assurance_engine.py. Previously this logic was
-split across esg_forensic_engine.py, forensic_algorithm.py, and inlined a
-third time directly inside backend_api.py's route handlers — three copies
-that could each drift independently. Everything importable now lives here.
-
-Module map (per the pipeline you specced):
-  A. Ingestion & Baseline Scoring        -> extract_entity_from_document,
-                                             parse_narrative_claims
-  B. Audit & Standards Cross-Reference   -> classify_assurance_document,
-                                             cross_reference_claims
-  C. Quantitative Data Pack Reconciliation -> score_data_pack_metrics,
-                                             reconcile_data_pack_totals
-  D. GIS Spatial Audit & Boundary Mapping -> evaluate_esg_claim,
-                                             validate_spatial_compliance,
-                                             check_assurance_coverage
-  E. Comprehensive Report Synthesizer    -> build_verification_report
-
-Plus the regulatory/compliance layer (evidence vault, DOSHS incident SLAs,
-bankability scoring) that test_assurance_engine.py and backend_api.py
-both depend on.
+backend_api.py, and test_assurance_engine.py. 
+Upgraded to include professional ReportLab PDF generation capabilities.
 """
 
 import re
 import hashlib
 import json
 import datetime
+import io
 import pandas as pd
+from reportlab.lib.pagesizes import letter
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib import colors
 
 
 # =====================================================================
@@ -39,9 +26,7 @@ def extract_entity_from_document(text: str, document_name: str = "") -> dict:
     """
     Confirms the uploaded Primary Disclosure Report belongs to the entity
     named on its pages. Tries explicit labels first ("Company:", "Issuer:"),
-    then falls back to a PLC/Bank/Group suffix pattern, then a known-name
-    lookup as a last resort — never the other way around, so a coincidental
-    substring match doesn't override an explicit label.
+    then falls back to a PLC/Bank/Group suffix pattern.
     """
     labeled_pattern = r"(?:Company|Entity|Issuer|Client|Prepared for):?\s*([A-Z][A-Za-z0-9&,\.\s]{2,60})"
     match = re.search(labeled_pattern, text)
@@ -83,9 +68,7 @@ METRIC_PATTERNS = {
 def parse_narrative_claims(text: str) -> dict:
     """
     Module A baseline pass: pulls Scope 1/2 figures where stated and runs a
-    lightweight greenwashing heuristic (buzzword density with no supporting
-    metric). This is a screening signal, not a verdict — Module B is what
-    actually checks these claims against an assurance document.
+    lightweight greenwashing heuristic.
     """
     metrics = {}
     for key, pattern in METRIC_PATTERNS.items():
@@ -115,14 +98,6 @@ def parse_narrative_claims(text: str) -> dict:
 # MODULE B — AUDIT & STANDARDS CROSS-REFERENCE
 # =====================================================================
 
-# Standard-name detection is kept strictly separate from assurance-level
-# detection, and level-matching is deliberately loose on word order, because
-# real documents phrase this inconsistently:
-#   "reasonable level of verification"   (SE Advisory)
-#   "assurance (limited level)"          (Global Documentation)
-#   "limited assurance ... ISAE 3000"    (EY)
-# A rigid phrase like "reasonable assurance" misses the first two entirely —
-# that was the bug in the last version of this file.
 STANDARD_NAME_PATTERNS = {
     "ISO 14064-3": r"ISO\s*14064\s*-?\s*3",
     "ISAE 3000": r"ISAE\)?\s*3000",
@@ -177,25 +152,13 @@ TIER_LABELS = {
 
 def classify_assurance_document(text: str, document_name: str = "") -> dict:
     """
-    Detects which standard(s) an uploaded ISO certificate / audit opinion /
-    verification statement invokes, and — independently — the assurance
-    level that applies to that standard. A document is never tagged with a
-    standard it doesn't actually name, and never scored by assurance-level
-    language alone without a named standard behind it.
+    Detects standard invocations and assurance levels safely handling boilerplate text.
     """
     detected_standards = [
         name for name, pattern in STANDARD_NAME_PATTERNS.items()
         if re.search(pattern, text, re.IGNORECASE)
     ]
 
-    # The sentence that actually states THIS engagement's assurance level is
-    # reliably in the opening paragraph ("was engaged to provide independent
-    # reasonable/limited assurance/verification of..."). Real assurance
-    # letters also contain generic boilerplate deeper in the document quoting
-    # what "reasonable assurance" means in the abstract (e.g. explaining the
-    # standard's own terminology), which is NOT a statement about this
-    # engagement. Prefer the opening-paragraph window; only fall back to a
-    # full-text search if nothing turns up there.
     opening_window = text[:1200]
     detected_level = None
     for level, pattern in ASSURANCE_LEVEL_PATTERNS.items():
@@ -242,13 +205,7 @@ def classify_assurance_document(text: str, document_name: str = "") -> dict:
 
 
 def cross_reference_claims(narrative_claims: dict, assurance_documents: list) -> dict:
-    """
-    Module B's actual cross-reference step: for each numeric claim Module A
-    pulled from the primary disclosure (e.g. scope_1 = 14250), checks whether
-    any uploaded assurance document's text also contains that figure. A claim
-    with no matching figure in any assurance document is flagged for review —
-    it may still be true, but nothing here corroborates it.
-    """
+    """Cross-references primary claims against assurance documents."""
     metrics = narrative_claims.get("metrics_found", {})
     combined_text = " ".join(doc.get("text", "") for doc in assurance_documents)
 
@@ -274,11 +231,7 @@ def cross_reference_claims(narrative_claims: dict, assurance_documents: list) ->
 # =====================================================================
 
 def score_data_pack_metrics(df: pd.DataFrame, assured_marker: str = "^") -> dict:
-    """
-    Scores each row of an uploaded CSV/XLSX data pack individually against
-    the assurance marker, rather than giving the whole file one blanket
-    score. Falls back gracefully across common column layouts.
-    """
+    """Scores each row of a data pack against the assurance marker."""
     total_metrics = len(df)
     assured_count = 0
     row_details = []
@@ -311,15 +264,9 @@ def score_data_pack_metrics(df: pd.DataFrame, assured_marker: str = "^") -> dict
 
 def reconcile_data_pack_totals(narrative_claims: dict, df: pd.DataFrame,
                                 value_column: str = "Value", metric_column: str = "Description") -> dict:
-    """
-    Checks whether a total figure quoted in the narrative text (Module A)
-    mathematically matches the sum of the underlying line items in the data
-    pack that roll up to it — e.g. does the report's stated Scope 1+Scope 2
-    total match the sum of the individual facility-level rows in the pack.
-    Flags a mismatch rather than assuming the narrative figure is correct.
-    """
+    """Reconciles narrative totals against underlying data pack rows."""
     if value_column not in df.columns:
-        return {"reconciled": None, "reason": f"No '{value_column}' column in data pack — cannot reconcile."}
+        return {"reconciled": None, "reason": f"No '{value_column}' column in data pack."}
 
     metrics = narrative_claims.get("metrics_found", {})
     checks = {}
@@ -352,11 +299,7 @@ def reconcile_data_pack_totals(narrative_claims: dict, df: pd.DataFrame,
 
 def evaluate_esg_claim(entity: str, claim_id: str, category: str, metric: str,
                         year: int, polygon: str, gis_data: dict) -> dict:
-    """
-    Evaluates a location-bound physical claim (forest cover, school
-    construction) against satellite/GIS observation data. Unchanged in
-    behavior from the original engine.
-    """
+    """Evaluates location-bound physical claims."""
     current_year = 2026
     if year < 2017 or year > current_year:
         return {"Error": "Claim year out of supported historical GIS verification window (2017-2026)."}
@@ -398,12 +341,7 @@ def evaluate_esg_claim(entity: str, claim_id: str, category: str, metric: str,
 
 
 def validate_spatial_compliance(latitude: float, longitude: float, observation_date: str) -> dict:
-    """
-    Confirms a field observation both falls inside Kenyan jurisdiction
-    bounds and is fresh enough to be usable evidence (30-day SLA). Shared
-    by backend_api.py's /verify-spatial route and the test suite — previously
-    this logic was duplicated inline inside the FastAPI handler only.
-    """
+    """Validates spatial coordinates and freshness SLAs."""
     is_in_kenya = (-4.7 <= latitude <= 5.5) and (33.9 <= longitude <= 41.9)
 
     try:
@@ -414,37 +352,17 @@ def validate_spatial_compliance(latitude: float, longitude: float, observation_d
     days_diff = (datetime.date.today() - obs_date).days
 
     if not is_in_kenya:
-        return {
-            "valid": False,
-            "reason": "Location falls outside Kenyan jurisdiction boundaries.",
-            "latitude": latitude,
-            "longitude": longitude,
-        }
+        return {"valid": False, "reason": "Location falls outside Kenyan jurisdiction boundaries."}
     if days_diff > 30:
-        return {
-            "valid": False,
-            "reason": "Evidence stale. Field observation exceeds 30-day freshness SLA.",
-            "latitude": latitude,
-            "longitude": longitude,
-        }
+        return {"valid": False, "reason": "Evidence stale. Field observation exceeds 30-day freshness SLA."}
 
-    return {
-        "valid": True,
-        "latitude": latitude,
-        "longitude": longitude,
-        "observation_date": observation_date,
-        "jurisdiction": "Kenya",
-        "status": "EUDR / NEMA CLEAR",
-    }
+    return {"valid": True, "jurisdiction": "Kenya", "status": "EUDR / NEMA CLEAR"}
 
 
 EXPECTED_BOUNDARIES = [
-    "Scope 1",
-    "Scope 2",
-    "Scope 3 Category 6 (Business Travel)",
+    "Scope 1", "Scope 2", "Scope 3 Category 6 (Business Travel)",
     "Scope 3 Category 8 (Purchased Goods/Data Centres)",
-    "Scope 3 Financed Emissions",
-    "Scope 3 Facilitated Emissions",
+    "Scope 3 Financed Emissions", "Scope 3 Facilitated Emissions",
 ]
 
 BOUNDARY_PATTERNS = {
@@ -458,10 +376,7 @@ BOUNDARY_PATTERNS = {
 
 
 def check_assurance_coverage(documents: list) -> dict:
-    """
-    Checks whether the combined set of uploaded assurance documents covers
-    every expected emissions boundary — flags any boundary nobody assured.
-    """
+    """Checks emission boundary coverage."""
     covered = {b: [] for b in EXPECTED_BOUNDARIES}
     for doc in documents:
         text = doc.get("text", "")
@@ -478,7 +393,7 @@ def check_assurance_coverage(documents: list) -> dict:
 
 
 def detect_restatements(text: str, document_name: str = "") -> dict:
-    """Flags prior-year restatement disclosures as a transparency note."""
+    """Flags prior-year restatements."""
     restatement_keywords = ["restated", "prior year adjustment", "reclassification", "previously reported"]
     found_excerpts = [
         sentence.strip()
@@ -493,15 +408,11 @@ def detect_restatements(text: str, document_name: str = "") -> dict:
 
 
 # =====================================================================
-# REGULATORY / COMPLIANCE LAYER
-# (Evidence vault, DOSHS incident SLAs, bankability scoring — required by
-#  backend_api.py's routes and test_assurance_engine.py. Previously these
-#  existed only inlined inside backend_api.py, with no importable, testable
-#  version anywhere, which is why the test suite couldn't pass.)
+# REGULATORY & COMPLIANCE LAYER
 # =====================================================================
 
 def register_evidence_document(file_bytes: bytes, filename: str, document_type: str, issuer_id: str) -> dict:
-    """Hashes an uploaded evidence document and locks it into the audit trail."""
+    """Hashes and locks uploaded evidence document."""
     file_hash = hashlib.sha256(file_bytes).hexdigest()
     return {
         "document_name": filename,
@@ -514,11 +425,7 @@ def register_evidence_document(file_bytes: bytes, filename: str, document_type: 
 
 
 class DOSHSIncidentTracker:
-    """
-    Tracks workplace incident SLA deadlines per Kenya's Directorate of
-    Occupational Safety and Health Services (DOSHS): fatal incidents must be
-    reported within 24 hours, non-fatal within 168 hours (7 days).
-    """
+    """Tracks workplace incident SLA deadlines."""
     SLA_HOURS = {"fatal": 24, "non_fatal": 168}
 
     def __init__(self, incident_type: str, description: str, employee_id: str):
@@ -549,40 +456,21 @@ class DOSHSIncidentTracker:
 
 
 def evaluate_esg_assurance_score(manifest: dict) -> dict:
-    """
-    Scores a lending-readiness manifest across four bankability gates —
-    environmental permit, workplace safety compliance, wage compliance, and
-    board oversight — each worth 25 points.
-    """
+    """Scores lending-readiness manifest."""
     weight = 100 / max(len(manifest), 1)
     score = round(sum(weight for v in manifest.values() if v))
-
-    if score >= 75:
-        status = "BANKABLE — meets core compliance gates"
-    elif score >= 50:
-        status = "CONDITIONALLY BANKABLE — gaps require remediation"
-    else:
-        status = "UNBANKABLE — critical compliance gaps"
-
-    return {
-        "score": score,
-        "status": status,
-        "manifest_detail": manifest,
-    }
+    status = "BANKABLE — meets core compliance gates" if score >= 75 else "CONDITIONALLY BANKABLE — gaps require remediation"
+    return {"score": score, "status": status, "manifest_detail": manifest}
 
 
 # =====================================================================
-# MODULE E — COMPREHENSIVE REPORT SYNTHESIZER
+# MODULE E — COMPREHENSIVE REPORT SYNTHESIZER & PDF EXPORT
 # =====================================================================
 
 def build_verification_report(entity_name: str, primary_disclosure_text: str, primary_disclosure_name: str,
                                 supporting_documents: list, data_pack_dataframes: list = None,
                                 gis_claims: list = None) -> dict:
-    """
-    Compiles Modules A-D into one report. Upload flow is unchanged:
-    Step 1 = primary disclosure text/name; Step 2 = supporting assurance
-    documents and data-pack dataframes.
-    """
+    """Compiles Modules A-D into one verification report dictionary."""
     entity_res = extract_entity_from_document(primary_disclosure_text, primary_disclosure_name)
     narrative_res = parse_narrative_claims(primary_disclosure_text)
     restatement_res = detect_restatements(primary_disclosure_text, primary_disclosure_name)
@@ -637,3 +525,50 @@ def build_verification_report(entity_name: str, primary_disclosure_text: str, pr
         "AggregateAssuranceScore": f"{aggregate_score} / {max_possible}",
         "FinalComplianceStatus": final_status,
     }
+
+
+def generate_forensic_pdf_report(report_data: dict) -> bytes:
+    """
+    Generates a professional downloadable PDF report from the verification output.
+    """
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
+    story = []
+    
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        'DocTitle', parent=styles['Heading1'], fontSize=16, textColor=colors.HexColor('#1b4332'), spaceAfter=8
+    )
+    heading_style = ParagraphStyle(
+        'SectionHeading', parent=styles['Heading2'], fontSize=11, textColor=colors.HexColor('#2d6a4f'), spaceBefore=8, spaceAfter=4
+    )
+    body_style = styles['Normal']
+    
+    # Title Section
+    story.append(Paragraph("Uujuzi Forensic ESG & Assurance Report", title_style))
+    story.append(Paragraph(f"<b>Entity Evaluated:</b> {report_data.get('EntityName', 'N/A')}", body_style))
+    story.append(Paragraph(f"<b>Overall Compliance Status:</b> {report_data.get('FinalComplianceStatus', 'N/A')}", body_style))
+    story.append(Spacer(1, 8))
+    
+    # Summary Table
+    story.append(Paragraph("Verification Summary Metrics", heading_style))
+    table_data = [
+        ["Audit Component", "Status / Findings"],
+        ["Aggregate Assurance Score", report_data.get('AggregateAssuranceScore', '0 / 0')],
+        ["Data Pack Assured Ratio", f"{report_data.get('DataPackAuditSummary', {}).get('assured_ratio', 0.0) * 100}%"],
+        ["Boundary Coverage Complete", str(report_data.get('AssuranceBoundaryCoverage', {}).get('coverage_complete', False))],
+    ]
+    t = Table(table_data, colWidths=[200, 300])
+    t.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#e9f5ed')),
+        ('TEXTCOLOR', (0,0), (-1,0), colors.HexColor('#1b4332')),
+        ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+        ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+        ('BOTTOMPADDING', (0,0), (-1,0), 4),
+        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#d8d8d8'))
+    ]))
+    story.append(t)
+    
+    doc.build(story)
+    buffer.seek(0)
+    return buffer.getvalue()

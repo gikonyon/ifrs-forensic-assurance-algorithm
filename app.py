@@ -6,7 +6,8 @@ from models.esg_forensic_engine import (
     score_data_pack_metrics,
     check_assurance_coverage,
     detect_restatements,
-    evaluate_esg_claim
+    evaluate_esg_claim,
+    build_verification_report
 )
 
 st.set_page_config(
@@ -19,12 +20,13 @@ st.title("🌱 Uujuzi Forensic ESG & Assurance Engine")
 st.markdown("Automated Greenwashing Detection, Assurance Tiering, Data Pack Scoring, and GIS Spatial Verification Dashboard")
 
 # Navigation Tabs
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "📄 Document Classifier", 
     "📊 Data Pack Scoring", 
     "🗺️ GIS Spatial Audit", 
     "🛡️ Boundary Coverage", 
-    "🔍 Restatement Detector"
+    "🔍 Restatement Detector",
+    "📑 Comprehensive Report Builder"
 ])
 
 # ---------------------------------------------------------------------------
@@ -35,7 +37,7 @@ with tab1:
     doc_name_input = st.text_input("Document File Name", "sustainability_report_2025.pdf")
     doc_text = st.text_area(
         "Paste Assurance Statement / Report Text:", 
-        "Ernst & Young LLP performed a limited assurance engagement in accordance with ISAE 3000 (Revised) for EcoCorp Ltd."
+        "Ernst & Young LLP was engaged by Standard Chartered Plc to perform a limited assurance engagement in accordance with International Standard on Assurance Engagements (ISAE) 3000 (Revised)."
     )
     
     if st.button("Run Document Analysis"):
@@ -55,13 +57,17 @@ with tab1:
 # ---------------------------------------------------------------------------
 with tab2:
     st.subheader("Supporting Data Pack Auditor (CSV / Excel)")
-    st.markdown("Upload a tabular data file or use the sample test dataframe to check which metrics carry assurance markers (`^`).")
+    st.markdown("Upload a tabular data file or use the default test dataframe to check which metrics carry assurance markers (`^`).")
     
-    uploaded_file = st.file_uploader("Upload CSV Data Pack", type=["csv", "txt"])
+    uploaded_file = st.file_uploader("Upload CSV Data Pack File", type=["csv", "txt"])
     marker_symbol = st.text_input("Assurance Marker Symbol", "^")
     
     if uploaded_file is not None:
-        df = pd.read_csv(uploaded_file)
+        try:
+            df = pd.read_csv(uploaded_file)
+        except Exception as e:
+            st.error(f"Error reading file: {e}")
+            df = pd.DataFrame()
     else:
         # Default sample data pack dataframe
         df = pd.DataFrame({
@@ -75,18 +81,19 @@ with tab2:
             "Value": [14250, 85400, 3210, 1.2]
         })
     
-    st.write("Data Preview:", df.head())
-    
-    if st.button("Score Data Pack Metrics"):
-        pack_res = score_data_pack_metrics(df, assured_marker=marker_symbol)
+    if not df.empty:
+        st.write("Data Preview:", df.head())
         
-        col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Total Metrics Scanned", pack_res["total_metrics_scanned"])
-        col2.metric("Assured Metrics", pack_res["assured_metrics"])
-        col3.metric("Unaudited Metrics", pack_res["unaudited_metrics"])
-        col4.metric("Assurance Ratio", f"{pack_res['assured_ratio'] * 100}%")
-        
-        st.dataframe(pd.DataFrame(pack_res["row_level_detail"]))
+        if st.button("Score Data Pack Metrics"):
+            pack_res = score_data_pack_metrics(df, assured_marker=marker_symbol)
+            
+            col1, col2, col3, col4 = st.columns(4)
+            col1.metric("Total Metrics Scanned", pack_res["total_metrics_scanned"])
+            col2.metric("Assured Metrics", pack_res["assured_metrics"])
+            col3.metric("Unaudited Metrics", pack_res["unaudited_metrics"])
+            col4.metric("Assurance Ratio", f"{pack_res['assured_ratio'] * 100}%")
+            
+            st.dataframe(pd.DataFrame(pack_res["row_level_detail"]))
 
 # ---------------------------------------------------------------------------
 # TAB 3: GIS Spatial Claim Auditor
@@ -120,12 +127,12 @@ with tab3:
 # ---------------------------------------------------------------------------
 with tab4:
     st.subheader("Assurance Scope & Boundary Coverage Check")
-    st.info("Ensures all mandatory carbon and emissions scopes (Scope 1, 2, and targeted Scope 3 categories) are fully covered across provider documents.")
+    st.info("Ensures all mandatory carbon and emissions scopes are fully covered across provider documents.")
     
     if st.button("Run Multi-Document Coverage Audit"):
         sample_docs = [
-            {"document_name": "ey-assurance.pdf", "text": "Ernst & Young LLP performed limited assurance covering Scope 1 Scope 2 financed emissions facilitated emissions."},
-            {"document_name": "se-verification.pdf", "text": "SE Advisory Services verified business travel and Scope 3 categories."},
+            {"document_name": "ey-assurance-report.pdf", "text": "Ernst & Young LLP performed limited assurance covering Scope 1 Scope 2 financed emissions facilitated emissions."},
+            {"document_name": "se-verification.pdf", "text": "SE Advisory Services verified business travel."},
             {"document_name": "gd-verification.pdf", "text": "Global Documentation verified data centre power usage."}
         ]
         coverage = check_assurance_coverage(sample_docs)
@@ -146,7 +153,7 @@ with tab5:
     st.subheader("Restatement & Data-Integrity Disclosure Detector")
     restatement_input = st.text_area(
         "Paste Report Text to Scan for Restatements:",
-        "Total prior year carbon balances have been restated resulting in an adjustment of 2.2 million tonnes following baseline recalibration."
+        "Total prior year balances have been restated resulting in an increase of $2.2 billion."
     )
     
     if st.button("Detect Restatements"):
@@ -158,3 +165,31 @@ with tab5:
                 st.code(ex)
         else:
             st.success("No restatement disclosures identified in the provided snippet.")
+
+# ---------------------------------------------------------------------------
+# TAB 6: Comprehensive Aggregate Report Builder
+# ---------------------------------------------------------------------------
+with tab6:
+    st.subheader("Comprehensive Verification Report Builder")
+    st.markdown("Run the full diagnostic assessment combining primary disclosures, supporting third-party verification files, and data packs.")
+    
+    entity_name_input = st.text_input("Company / Entity Evaluated", "Standard Chartered Plc")
+    primary_text_input = st.text_area("Primary Disclosure Text", "Standard Chartered Plc Annual Report 2025 disclosures...")
+    
+    if st.button("Generate Comprehensive Report"):
+        supporting_docs_sample = [
+            {"document_name": "ey-assurance.pdf", "text": "Ernst & Young LLP performed a limited assurance engagement in accordance with ISAE 3000 (Revised). financed emissions facilitated emissions"},
+            {"document_name": "se-verification.pdf", "text": "SE Advisory Services provided independent third-party reasonable verification of Scope 3 emissions aligned with ISO 14064-3:2019. business travel"}
+        ]
+        sample_dp = [{"document_name": "data_pack.csv", "dataframe": df}] if not df.empty else []
+        
+        report = build_verification_report(
+            entity_name=entity_name_input,
+            primary_disclosure_text=primary_text_input,
+            primary_disclosure_name="primary_report.pdf",
+            supporting_documents=supporting_docs_sample,
+            data_pack_dataframes=sample_dp
+        )
+        
+        st.success("Verification Report Successfully Generated!")
+        st.json(report)
